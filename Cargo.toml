@@ -1,0 +1,25 @@
+[package]
+name = "git-sync-backup"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.86"
+clap = { version = "4.5.7", features = ["derive"] }
+die-exit = "0.5.0"
+env_logger = "0.11.3"
+log = "0.4.21"
+serde = { version = "1.0.203", features = ["derive"] }
+tokio = { version = "1.38.0", features = [
+  "macros",
+  "rt",
+  "rt-multi-thread",
+  "fs",
+] }
+async-scoped = { version = "0.9", features = ["use-tokio"] }
+whoami = "1.5.1"
+
+[dependencies.config-file]
+git = "https://github.com/lxl66566/config-file.git"
+features = ["toml"]
+commit = "b9217e4"
