@@ -39,7 +39,6 @@ ignore_collect                               = ["d37ef0ee-3c3f-419a-8c32-6652656
 ignore_restore                               = ["e48ff1f2-4d5e-4a9f-9c3d-66526565b4ae"]    # (Optional) Devices for which `restore` operation should be ignored for this item
 sources.d37ef0ee-3c3f-419a-8c32-66526565b4ae = "D:/Program Files/gsb"
 sources.e48ff1f2-4d5e-4a9f-9c3d-66526565b4ae = "E:/Program Files/gsb"
-
 ```
 
 ## Installation and Usage
