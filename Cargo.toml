@@ -1,7 +1,14 @@
 [package]
-edition = "2021"
-name    = "git-sync-backup"
-version = "0.1.0"
+authors     = ["lxl66566 <lxl66566@gmail.com>"]
+description = "Synchronize and backup files/folders using Git, cross-device & configurable."
+edition     = "2024"
+homepage    = "https://github.com/lxl66566/git-sync-backup.git"
+keywords    = ["git", "sync", "backup"]
+license     = "MIT"
+name        = "git-sync-backup"
+readme      = "README.md"
+repository  = "https://github.com/lxl66566/git-sync-backup.git"
+version     = "0.1.0"
 
 [dependencies]
 clap              = { version = "4.4", features = ["derive"] }
