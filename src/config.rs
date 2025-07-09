@@ -1,8 +1,6 @@
-use crate::error::{GsbError, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -10,15 +8,16 @@ pub struct Config {
     pub version: String,
     #[serde(default = "default_sync_interval")]
     pub sync_interval: u64,
+    #[serde(default)]
     pub git: GitConfig,
     #[serde(rename = "item")]
     pub items: Vec<Item>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct GitConfig {
-    pub remote: String,
-    pub branch: String,
+    pub remote: Option<String>,
+    pub branch: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -32,19 +31,6 @@ pub struct Item {
     pub ignore_collect: Vec<String>,
     #[serde(default)]
     pub ignore_restore: Vec<String>,
-}
-
-impl Config {
-    /// 加载并解析配置文件
-    pub fn load(repo_root: &Path) -> Result<Self> {
-        let config_path = repo_root.join(".gsb.config.toml");
-        if !config_path.exists() {
-            return Err(GsbError::ConfigNotFound);
-        }
-        let content = fs::read_to_string(config_path)?;
-        let config: Config = toml::from_str(&content)?;
-        Ok(config)
-    }
 }
 
 impl Item {

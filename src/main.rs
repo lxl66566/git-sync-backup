@@ -7,12 +7,12 @@ mod utils;
 
 use crate::cli::{Cli, Commands};
 use crate::config::Config;
-use crate::error::Result;
+use crate::error::{GsbError, Result};
 use clap::Parser;
+use config_file2::LoadConfigFile;
 
 fn main() {
-    // 初始化日志记录器，可以通过 RUST_LOG=info cargo run ... 来控制日志级别
-    env_logger::init();
+    utils::log_init();
 
     if let Err(e) = run() {
         log::error!("Application error: {}", e);
@@ -31,7 +31,7 @@ fn run() -> Result<()> {
     // 找到仓库根目录并加载配置
     let repo_root = utils::find_repo_root()?;
     log::info!("Found repository root at: {:?}", repo_root);
-    let config = Config::load(&repo_root)?;
+    let config = Config::load(&repo_root)?.ok_or(GsbError::ConfigNotFound)?;
 
     // 根据子命令执行相应操作
     match cli.command {

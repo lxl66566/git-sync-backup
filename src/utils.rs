@@ -3,6 +3,25 @@ use home::home_dir;
 use std::env;
 use std::path::{Path, PathBuf};
 
+use log::LevelFilter;
+
+#[inline]
+pub fn log_init() {
+    #[cfg(not(debug_assertions))]
+    log_init_with_default_level(LevelFilter::Info);
+    #[cfg(debug_assertions)]
+    log_init_with_default_level(LevelFilter::Debug);
+}
+
+#[inline]
+pub fn log_init_with_default_level(level: LevelFilter) {
+    _ = pretty_env_logger::formatted_builder()
+        .filter_level(level)
+        .format_timestamp_secs()
+        .parse_default_env()
+        .try_init();
+}
+
 /// 获取当前设备的主机名
 pub fn get_current_device_name() -> Result<String> {
     machine_uid::get().map_err(|_| GsbError::DeviceNameError)
