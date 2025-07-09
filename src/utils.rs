@@ -1,4 +1,5 @@
 use crate::error::{GsbError, Result};
+use home::home_dir;
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -22,4 +23,13 @@ pub fn find_repo_root() -> Result<PathBuf> {
             None => return Err(GsbError::RepoRootNotFound),
         }
     }
+}
+
+pub fn expand_tilde(path: PathBuf) -> PathBuf {
+    if let Ok(stripped) = path.strip_prefix("~") {
+        if let Some(home) = home_dir() {
+            return home.join(stripped);
+        }
+    }
+    path
 }

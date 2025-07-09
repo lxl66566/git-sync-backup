@@ -1,43 +1,43 @@
 use crate::config::Config;
 use crate::error::{GsbError, Result};
 use crate::git::GsbRepo;
-use crate::utils;
+use crate::utils::{self, expand_tilde}; // <-- MODIFIED
 use fs_extra::dir::{copy as copy_dir, CopyOptions};
 use fs_extra::file::{copy as copy_file, CopyOptions as FileCopyOptions};
+use rayon::prelude::*; // <-- ADDED
 use std::fs;
 use std::path::Path;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// 处理 `collect` 命令
+/// 处理 `collect` 命令 (并行版本)
 pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
-    log::info!("Starting collection process...");
+    log::info!("Starting parallel collection process...");
     let device_name = utils::get_current_device_name()?;
     let repo = GsbRepo::open(repo_root)?;
 
-    for item in &config.items {
+    // Use Rayon for parallel processing
+    config.items.par_iter().try_for_each(|item| -> Result<()> {
         if item.ignore_collect.contains(&device_name) {
             log::info!(
                 "Skipping collect for '{}' on this device.",
                 item.path_in_repo
             );
-            continue;
-        }
-
-        if item.is_hardlink {
-            log::info!("'{}' is a hardlink, skipping copy.", item.path_in_repo);
-            continue;
+            return Ok(());
         }
 
         let source_path = item.get_source_for_device(&device_name).ok_or_else(|| {
             GsbError::SourcePathNotFound(item.path_in_repo.clone(), device_name.clone())
         })?;
 
+        // Expand tilde in path
+        let source_path = expand_tilde(source_path);
+
         let dest_path = repo_root.join(&item.path_in_repo);
 
         if !source_path.exists() {
             log::warn!("Source path does not exist, skipping: {:?}", source_path);
-            continue;
+            return Ok(());
         }
 
         // 确保目标文件夹存在
@@ -45,18 +45,37 @@ pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
             fs::create_dir_all(parent)?;
         }
 
-        // 如果目标已存在，先删除，避免合并问题
-        if dest_path.exists() {
-            if dest_path.is_dir() {
-                fs::remove_dir_all(&dest_path)?;
-            } else {
-                fs::remove_file(&dest_path)?;
+        // Handle hardlinks
+        if item.is_hardlink {
+            log::info!(
+                "Linking (hardlink) '{:?}' -> '{:?}'",
+                source_path,
+                dest_path
+            );
+            // 如果目标已存在，先删除，以确保可以创建新的硬链接
+            if dest_path.exists() {
+                if dest_path.is_dir() {
+                    fs::remove_dir_all(&dest_path)?;
+                } else {
+                    fs::remove_file(&dest_path)?;
+                }
             }
+            fs::hard_link(&source_path, &dest_path)
+                .map_err(|_| GsbError::HardlinkFailed(source_path.clone(), dest_path.clone()))?;
+        } else {
+            log::info!("Collecting '{:?}' -> '{:?}'", source_path, dest_path);
+            // 如果目标已存在，先删除，避免合并问题
+            if dest_path.exists() {
+                if dest_path.is_dir() {
+                    fs::remove_dir_all(&dest_path)?;
+                } else {
+                    fs::remove_file(&dest_path)?;
+                }
+            }
+            copy_item(&source_path, &dest_path)?;
         }
-
-        log::info!("Collecting '{:?}' -> '{:?}'", source_path, dest_path);
-        copy_item(&source_path, &dest_path)?;
-    }
+        Ok(())
+    })?;
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -69,23 +88,19 @@ pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// 处理 `restore` 命令
+/// 处理 `restore` 命令 (并行版本)
 pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
-    log::info!("Starting restore process...");
+    log::info!("Starting parallel restore process...");
     let device_name = utils::get_current_device_name()?;
 
-    for item in &config.items {
+    // Use Rayon for parallel processing
+    config.items.par_iter().try_for_each(|item| -> Result<()> {
         if item.ignore_restore.contains(&device_name) {
             log::info!(
                 "Skipping restore for '{}' on this device.",
                 item.path_in_repo
             );
-            continue;
-        }
-
-        if item.is_hardlink {
-            log::info!("'{}' is a hardlink, skipping copy.", item.path_in_repo);
-            continue;
+            return Ok(());
         }
 
         let source_path = repo_root.join(&item.path_in_repo);
@@ -93,12 +108,15 @@ pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
             GsbError::SourcePathNotFound(item.path_in_repo.clone(), device_name.clone())
         })?;
 
+        // Expand tilde in path
+        let dest_path = expand_tilde(dest_path);
+
         if !source_path.exists() {
             log::warn!(
                 "Source path in repo does not exist, skipping: {:?}",
                 source_path
             );
-            continue;
+            return Ok(());
         }
 
         // 确保目标文件夹存在
@@ -106,9 +124,28 @@ pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
             fs::create_dir_all(parent)?;
         }
 
-        log::info!("Restoring '{:?}' -> '{:?}'", source_path, dest_path);
-        copy_item(&source_path, &dest_path)?;
-    }
+        // Handle hardlinks
+        if item.is_hardlink {
+            log::info!(
+                "Linking (hardlink) '{:?}' -> '{:?}'",
+                source_path,
+                dest_path
+            );
+            if dest_path.exists() {
+                if dest_path.is_dir() {
+                    fs::remove_dir_all(&dest_path)?;
+                } else {
+                    fs::remove_file(&dest_path)?;
+                }
+            }
+            fs::hard_link(&source_path, &dest_path)
+                .map_err(|_| GsbError::HardlinkFailed(source_path.clone(), dest_path.clone()))?;
+        } else {
+            log::info!("Restoring '{:?}' -> '{:?}'", source_path, dest_path);
+            copy_item(&source_path, &dest_path)?;
+        }
+        Ok(())
+    })?;
 
     log::info!("Restore process finished.");
     Ok(())

@@ -52,7 +52,7 @@ impl GsbRepo {
         remote.fetch(&[branch_name], None, None)?;
 
         let fetch_head_oid = self.repo.refname_to_id("FETCH_HEAD")?;
-        let fetch_commit = self.repo.find_commit(fetch_head_oid)?;
+        let _fetch_commit = self.repo.find_commit(fetch_head_oid)?;
         let annotated_fetch_commit = self.repo.find_annotated_commit(fetch_head_oid)?;
 
         let (analysis, _) = self.repo.merge_analysis(&[&annotated_fetch_commit])?;
