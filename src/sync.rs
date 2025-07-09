@@ -1,10 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Ok, Result};
 use die_exit::Die;
 
 use crate::{
-    config::{Config, Getable, CONFIG},
+    config::{Getable, CONFIG},
     git_command::{git, REMOTE_NAME, REPO_PATH, SYNC_BRANCH},
 };
 

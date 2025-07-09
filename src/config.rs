@@ -1,10 +1,10 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex, RwLock},
+    collections::BTreeMap,
+    path::PathBuf,
+    sync::{Arc, RwLock},
 };
 
-use config_file::*;
+use config_file2::*;
 use serde::{Deserialize, Serialize};
 use whoami::devicename;
 
@@ -14,8 +14,12 @@ const CONFIG_NAME: &str = ".gsb.config.toml";
 
 use std::sync::LazyLock;
 
-pub static CONFIG: LazyLock<Arc<RwLock<Config>>> =
-    LazyLock::new(|| Arc::new(RwLock::new(load_config_or_default())));
+pub static CONFIG: LazyLock<Arc<RwLock<Config>>> = LazyLock::new(|| {
+    Arc::new(RwLock::new(
+        Config::load_or_default(REPO_PATH.clone().join(CONFIG_NAME))
+            .expect("failed to load config"),
+    ))
+});
 
 /// The files in [`SyncGroup`].
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]
@@ -87,15 +91,4 @@ impl Default for Config {
             backup_group: Default::default(),
         }
     }
-}
-
-fn save_config_inner(config: &Config) -> Result<(), ConfigFileError> {
-    config.to_config_file(REPO_PATH.clone().join(CONFIG_NAME))
-}
-pub fn save_config() -> Result<(), ConfigFileError> {
-    save_config_inner(&CONFIG.read().unwrap())
-}
-pub fn load_config_or_default() -> Config {
-    let config_file = Config::from_config_file(REPO_PATH.clone().join(CONFIG_NAME));
-    config_file.unwrap_or_default()
 }

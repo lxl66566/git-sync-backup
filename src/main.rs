@@ -1,4 +1,3 @@
-#![feature(anonymous_lifetime_in_impl_trait)]
 mod backup;
 mod cli;
 mod config;

@@ -1,7 +1,7 @@
 use std::{path::PathBuf, process::Command, sync::LazyLock};
 
 use anyhow::Result;
-use die_exit::{die, Die, DieWith};
+use die_exit::Die;
 use whoami::devicename;
 
 use crate::cli::CLI;
@@ -28,17 +28,16 @@ pub fn ensure_utf8() -> Result<()> {
     Ok(())
 }
 
-pub fn git(args: impl AsRef<[&str]>) -> Result<String> {
+pub fn git<'a>(args: impl AsRef<[&'a str]>) -> Result<String> {
     let _ = ensure_utf8();
-    let mut command = Command::new("cmd");
-    let output = command
-        .args(["/C", "git"])
+    let output = Command::new("git")
         .args(args.as_ref())
         .current_dir(REPO_PATH.as_path())
         .output()?;
     Ok(String::from_utf8(output.stdout)?)
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 
