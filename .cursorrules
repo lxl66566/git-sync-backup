@@ -1,0 +1,40 @@
+# git-sync-backup
+
+本项目主要使用 git 对文件夹进行同步或备份。
+
+核心功能：
+
+1. gsb c 或 gsb collect 命令，将所有文件夹同步到当前 git 仓库。
+2. gsb r 或 gsb restore 命令，将当前 git 仓库中的所有文件夹同步到本地指定位置。
+3. gsb s 或 gsb sync 命令，持续后台运行，每一段固定间隔去 fetch 远程仓库的更新，并将更新文件应用到本地。
+
+## 配置文件格式
+
+配置文件为仓库下根目录的 `.gsb.config.toml` 文件，记录了所有 gsb 的设置与文件对应关系。
+
+gsb 设计为跨设备跨系统与架构使用，同一个文件在不同设备上的存储路径可能不同。每一个文件可以有一个 default_source 路径在所有设备上通用，也可以使用 device name 指定具体设备的路径。
+
+每一个 path 可以是文件或文件夹。如果是文件，还可以指定 is_hardlink 为 true，则默认仓库中文件与 path 位置是 hardlink，collect 和 restore 时无需处理。
+
+```toml
+version = "0.1.0"             # gsb 版本
+sync_interval = 3600          # gsb sync 同步间隔，单位为秒
+
+[git]
+remote = "origin"             # gsb sync 时使用的远程仓库名
+branch = "main"               # gsb sync 时使用的分支名
+
+[[item]]
+path_in_repo = "test"                     # 项目在仓库中的相对路径
+default_source = "C:/Program Files/gsb"   # 默认路径（Optional）
+is_hardlink = true                        # 是否是 hardlink（Optional）
+
+[[item]]
+path_in_repo = "test2"                    # 项目在仓库中的相对路径
+# 多个设备上的路径（Optional）
+sources.DESKTOP-A1B2C3D = "D:/Program Files/gsb"
+sources.DESKTOP-E4R5T6U = "E:/Program Files/gsb"
+
+ignore_collect = ["DESKTOP-A1B2C3D"]      # 不需要 collect 的设备名（Optional）
+ignore_restore = ["DESKTOP-E4R5T6U"]      # 不需要 restore 的设备名（Optional）
+```

@@ -1,0 +1,34 @@
+use std::path::PathBuf;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum GsbError {
+    #[error("IO Error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("TOML Deserialization Error: {0}")]
+    TomlDe(#[from] toml::de::Error),
+
+    #[error("Git Error: {0}")]
+    Git(#[from] git2::Error),
+
+    #[error("Filesystem Extra Error: {0}")]
+    FsExtra(#[from] fs_extra::error::Error),
+
+    #[error("Config file '.gsb.config.toml' not found in current or parent directories.")]
+    ConfigNotFound,
+
+    #[error("Could not determine repository root.")]
+    RepoRootNotFound,
+
+    #[error("Could not determine current device name.")]
+    DeviceNameError,
+
+    #[error("Source path not found for item '{0}' on device '{1}'.")]
+    SourcePathNotFound(String, String),
+
+    #[error("Path does not exist: {0}")]
+    PathDoesNotExist(PathBuf),
+}
+
+pub type Result<T> = std::result::Result<T, GsbError>;
