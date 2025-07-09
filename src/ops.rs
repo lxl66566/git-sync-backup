@@ -1,10 +1,10 @@
 use crate::config::Config;
 use crate::error::{GsbError, Result};
 use crate::git::GsbRepo;
-use crate::utils::{self, expand_tilde}; // <-- MODIFIED
+use crate::utils::{self, expand_tilde};
 use fs_extra::dir::{copy as copy_dir, CopyOptions};
 use fs_extra::file::{copy as copy_file, CopyOptions as FileCopyOptions};
-use rayon::prelude::*; // <-- ADDED
+use rayon::prelude::*;
 use std::fs;
 use std::path::Path;
 use std::thread;

@@ -10,6 +10,7 @@ use crate::config::Config;
 use crate::error::{GsbError, Result};
 use clap::Parser;
 use config_file2::LoadConfigFile;
+use log::warn;
 
 fn main() {
     utils::log_init();
@@ -32,6 +33,14 @@ fn run() -> Result<()> {
     let repo_root = utils::find_repo_root()?;
     log::info!("Found repository root at: {:?}", repo_root);
     let config = Config::load(&repo_root)?.ok_or(GsbError::ConfigNotFound)?;
+
+    if config.version != env!("CARGO_PKG_VERSION") {
+        warn!(
+            "The config file version ({}) != gsb version ({}), there may be compatibility issues, please be careful.",
+            config.version,
+            env!("CARGO_PKG_VERSION")
+        );
+    }
 
     // 根据子命令执行相应操作
     match cli.command {
