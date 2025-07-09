@@ -1,14 +1,11 @@
 use std::{
     fs,
+    io::{self, BufReader, Read},
     path::Path,
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use fs_extra::{
-    dir::{CopyOptions, copy as copy_dir},
-    file::{CopyOptions as FileCopyOptions, copy as copy_file},
-};
 use rayon::prelude::*;
 
 use crate::{
@@ -18,7 +15,128 @@ use crate::{
     utils::{self, expand_tilde},
 };
 
-/// 处理 `collect` 命令 (并行版本)
+/// 逐字节比较两个文件的内容是否相等。
+///
+/// 仅在文件大小相同但修改时间不可靠时作为备用检查方法。
+/// 为了提高效率，使用了带缓冲的读取器。
+///
+/// # Arguments
+///
+/// * `path1` - 第一个文件的路径
+/// * `path2` - 第二个文件的路径
+///
+/// # Returns
+///
+/// 如果文件内容完全相同，返回 `Ok(true)`，否则返回 `Ok(false)`。
+/// 如果发生 I/O 错误，则返回 `Err`。
+fn are_contents_equal(path1: &Path, path2: &Path) -> io::Result<bool> {
+    // 使用带缓冲的读取器以获得更好的性能
+    let mut f1 = BufReader::new(fs::File::open(path1)?);
+    let mut f2 = BufReader::new(fs::File::open(path2)?);
+
+    let mut buf1 = [0; 8192]; // 8KB 缓冲区
+    let mut buf2 = [0; 8192];
+
+    loop {
+        let bytes_read1 = f1.read(&mut buf1)?;
+        let bytes_read2 = f2.read(&mut buf2)?;
+
+        // 如果读取的字节数不同，说明文件不同（理论上在大小相同时不应发生）
+        if bytes_read1 != bytes_read2 {
+            return Ok(false);
+        }
+
+        // 如果都读取到了文件末尾（读取字节数为0），则说明文件内容相同
+        if bytes_read1 == 0 {
+            return Ok(true);
+        }
+
+        // 比较当前缓冲区的内容
+        if buf1[..bytes_read1] != buf2[..bytes_read2] {
+            return Ok(false);
+        }
+    }
+}
+
+/// 统一的文件/文件夹智能拷贝函数
+///
+/// 该函数会比较源和目标，只在必要时执行 I/O 操作，以最小化磁盘写入。
+///
+/// - 如果源是文件：
+///   1. 优先比较文件大小和修改时间。
+///   2. 如果修改时间不可用，则回退到逐字节的内容比较，确保拷贝的准确性。
+/// - 如果源是目录：
+///   - 递归地对目录内容应用相同的智能拷贝逻辑。
+fn copy_item(from: &Path, to: &Path) -> Result<()> {
+    if !from.exists() {
+        log::warn!("Source path does not exist, skipping sync: {:?}", from);
+        return Ok(());
+    }
+
+    // 如果目标路径的父目录不存在，则创建它
+    if let Some(parent) = to.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+
+    if from.is_dir() {
+        // --- 目录拷贝逻辑 ---
+        if !to.exists() {
+            fs::create_dir(to)?;
+        }
+
+        // 递归拷贝目录内容
+        for entry in fs::read_dir(from)? {
+            let entry = entry?;
+            let source_path = entry.path();
+            let dest_path = to.join(entry.file_name());
+            copy_item(&source_path, &dest_path)?; // 递归调用
+        }
+    } else {
+        // --- 文件拷贝逻辑 ---
+        let mut should_copy = true;
+        if to.exists() {
+            let from_meta = fs::metadata(from)?;
+            let to_meta = fs::metadata(to)?;
+
+            // 1. 快速检查：比较文件大小。如果大小不同，必须复制。
+            if from_meta.len() == to_meta.len() {
+                // 大小相同，继续检查。
+                // 2. 尝试通过修改时间进行检查（快速且常用）。
+                if let (Ok(from_time), Ok(to_time)) = (from_meta.modified(), to_meta.modified()) {
+                    // 修改时间可用，进行比较。
+                    if from_time.duration_since(UNIX_EPOCH).unwrap().as_secs()
+                        == to_time.duration_since(UNIX_EPOCH).unwrap().as_secs()
+                    {
+                        should_copy = false; // 大小和修改时间都相同，跳过复制。
+                    }
+                } else {
+                    // 3. 备用方案：修改时间不可用，回退到更可靠但较慢的逐字节比较。
+                    log::warn!(
+                        "Could not read modification time for {:?} or {:?}. Falling back to byte-by-byte comparison.",
+                        from,
+                        to
+                    );
+                    if are_contents_equal(from, to)? {
+                        should_copy = false; // 文件内容相同，跳过复制。
+                    }
+                }
+            }
+        }
+
+        if should_copy {
+            log::debug!("Copying file: {:?} -> {:?}", from, to);
+            fs::copy(from, to)?;
+        } else {
+            log::trace!("Skipping unchanged file: {:?}", from);
+        }
+    }
+
+    Ok(())
+}
+
+/// 处理 `collect` 命令
 pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
     log::info!("Starting parallel collection process...");
     let device_name = utils::get_current_device_name()?;
@@ -56,11 +174,6 @@ pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
             return Ok(());
         }
 
-        // 确保目标文件夹存在
-        if let Some(parent) = dest_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
         // Handle hardlinks
         if item.is_hardlink {
             log::info!(
@@ -68,26 +181,23 @@ pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
                 source_path,
                 dest_path
             );
-            // 如果目标已存在，先删除，以确保可以创建新的硬链接
+            // 对于硬链接，仍然需要先删除旧的，因为硬链接无法“更新”
             if dest_path.exists() {
                 if dest_path.is_dir() {
                     fs::remove_dir_all(&dest_path)?;
                 } else {
                     fs::remove_file(&dest_path)?;
                 }
+            }
+            // 确保目标文件夹存在
+            if let Some(parent) = dest_path.parent() {
+                fs::create_dir_all(parent)?;
             }
             fs::hard_link(&source_path, &dest_path)
                 .map_err(|_| GsbError::HardlinkFailed(source_path.clone(), dest_path.clone()))?;
         } else {
             log::info!("Collecting '{:?}' -> '{:?}'", source_path, dest_path);
-            // 如果目标已存在，先删除，避免合并问题
-            if dest_path.exists() {
-                if dest_path.is_dir() {
-                    fs::remove_dir_all(&dest_path)?;
-                } else {
-                    fs::remove_file(&dest_path)?;
-                }
-            }
+            // 拷贝文件夹
             copy_item(&source_path, &dest_path)?;
         }
         Ok(())
@@ -104,7 +214,7 @@ pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// 处理 `restore` 命令 (并行版本)
+/// 处理 `restore` 命令
 pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
     log::info!("Starting parallel restore process...");
     let device_name = utils::get_current_device_name()?;
@@ -143,11 +253,6 @@ pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
             return Ok(());
         }
 
-        // 确保目标文件夹存在
-        if let Some(parent) = dest_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
         // Handle hardlinks
         if item.is_hardlink {
             log::info!(
@@ -162,10 +267,15 @@ pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
                     fs::remove_file(&dest_path)?;
                 }
             }
+            // 确保目标文件夹存在
+            if let Some(parent) = dest_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
             fs::hard_link(&source_path, &dest_path)
                 .map_err(|_| GsbError::HardlinkFailed(source_path.clone(), dest_path.clone()))?;
         } else {
             log::info!("Restoring '{:?}' -> '{:?}'", source_path, dest_path);
+            // 拷贝文件夹
             copy_item(&source_path, &dest_path)?;
         }
         Ok(())
@@ -204,21 +314,6 @@ pub fn handle_sync(config: &Config, repo_root: &Path) -> Result<()> {
         log::info!("Sync cycle finished. Sleeping for {:?}...", sleep_duration);
         thread::sleep(sleep_duration);
     }
-}
-
-/// 统一的文件/文件夹拷贝函数
-fn copy_item(from: &Path, to: &Path) -> Result<()> {
-    if from.is_dir() {
-        let mut options = CopyOptions::new();
-        options.overwrite = true;
-        options.copy_inside = true;
-        copy_dir(from, to, &options)?;
-    } else {
-        let mut options = FileCopyOptions::new();
-        options.overwrite = true;
-        copy_file(from, to, &options)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

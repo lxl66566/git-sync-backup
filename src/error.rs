@@ -16,9 +16,6 @@ pub enum GsbError {
     #[error("Git Error: {0}")]
     Git(#[from] git2::Error),
 
-    #[error("Filesystem Extra Error: {0}")]
-    FsExtra(#[from] fs_extra::error::Error),
-
     #[error("Could not determine repository root.")]
     RepoRootNotFound,
 
@@ -28,7 +25,9 @@ pub enum GsbError {
     #[error("Source path not found for item '{0}' on device '{1}'.")]
     SourcePathNotFound(String, String),
 
-    #[error("Failed to create hardlink from {0:?} to {1:?}. This can happen on different filesystems/partitions.")]
+    #[error(
+        "Failed to create hardlink from {0:?} to {1:?}. This can happen on different filesystems/partitions."
+    )]
     HardlinkFailed(PathBuf, PathBuf),
 }
 
