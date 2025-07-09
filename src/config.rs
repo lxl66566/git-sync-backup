@@ -1,6 +1,6 @@
+use std::{collections::HashMap, path::PathBuf};
+
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {

@@ -1,9 +1,12 @@
-use crate::error::{GsbError, Result};
-use home::home_dir;
-use std::env;
-use std::path::{Path, PathBuf};
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
 
+use home::home_dir;
 use log::LevelFilter;
+
+use crate::error::{GsbError, Result};
 
 #[inline]
 pub fn log_init() {

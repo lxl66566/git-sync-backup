@@ -1,14 +1,22 @@
-use crate::config::Config;
-use crate::error::{GsbError, Result};
-use crate::git::GsbRepo;
-use crate::utils::{self, expand_tilde};
-use fs_extra::dir::{copy as copy_dir, CopyOptions};
-use fs_extra::file::{copy as copy_file, CopyOptions as FileCopyOptions};
+use std::{
+    fs,
+    path::Path,
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
+use fs_extra::{
+    dir::{copy as copy_dir, CopyOptions},
+    file::{copy as copy_file, CopyOptions as FileCopyOptions},
+};
 use rayon::prelude::*;
-use std::fs;
-use std::path::Path;
-use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use crate::{
+    config::Config,
+    error::{GsbError, Result},
+    git::GsbRepo,
+    utils::{self, expand_tilde},
+};
 
 /// 处理 `collect` 命令 (并行版本)
 pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
@@ -199,13 +207,16 @@ fn copy_item(from: &Path, to: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        collections::HashMap,
+        fs::{self, File},
+        io::Write,
+    };
+
+    use tempfile::tempdir;
+
     use super::*;
     use crate::config::{Config, GitConfig, Item};
-
-    use std::collections::HashMap;
-    use std::fs::{self, File};
-    use std::io::Write;
-    use tempfile::tempdir;
 
     // 辅助函数：创建并初始化一个临时 Git 仓库和工作目录
     fn setup_test_env() -> (tempfile::TempDir, tempfile::TempDir, Config) {
@@ -268,7 +279,7 @@ mod tests {
                         utils::get_current_device_name().unwrap(),
                         work_dir.path().join("ignored_source.txt"),
                     )])),
-                    ignore_collect: vec![utils::get_current_device_name().unwrap()], // 忽略当前设备的收集
+                    ignore_collect: vec![utils::get_current_device_name().unwrap()], /* 忽略当前设备的收集 */
                     ignore_restore: vec![],
                 },
             ],

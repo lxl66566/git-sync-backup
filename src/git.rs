@@ -1,6 +1,8 @@
-use crate::error::{GsbError, Result};
-use git2::{IndexAddOption, Repository, Signature};
 use std::path::Path;
+
+use git2::{IndexAddOption, Repository, Signature};
+
+use crate::error::{GsbError, Result};
 
 pub struct GsbRepo {
     repo: Repository,
@@ -75,10 +77,12 @@ impl GsbRepo {
             // 在实际应用中，这里需要更复杂的处理。
             log::warn!("Merge required, but auto-merge is not implemented. Please merge manually.");
             // 或者可以尝试合并
-            // let remote_branch_ref = self.repo.find_reference(&format!("refs/remotes/{}/{}", remote_name, branch_name))?;
-            // let remote_commit = remote_branch_ref.peel_to_commit()?;
-            // let mut index = self.repo.merge_trees(self.repo.head()?.peel_to_tree()?, remote_commit.tree()?, None)?;
-            // if index.has_conflicts() { ... }
+            // let remote_branch_ref =
+            // self.repo.find_reference(&format!("refs/remotes/{}/{}", remote_name,
+            // branch_name))?; let remote_commit =
+            // remote_branch_ref.peel_to_commit()?; let mut index =
+            // self.repo.merge_trees(self.repo.head()?.peel_to_tree()?,
+            // remote_commit.tree()?, None)?; if index.has_conflicts() { ... }
             Err(GsbError::Git(git2::Error::new(
                 git2::ErrorCode::MergeConflict,
                 git2::ErrorClass::Merge,

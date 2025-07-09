@@ -5,12 +5,15 @@ mod git;
 mod ops;
 mod utils;
 
-use crate::cli::{Cli, Commands};
-use crate::config::Config;
-use crate::error::{GsbError, Result};
 use clap::Parser;
 use config_file2::LoadConfigFile;
 use log::warn;
+
+use crate::{
+    cli::{Cli, Commands},
+    config::Config,
+    error::{GsbError, Result},
+};
 
 fn main() {
     utils::log_init();
