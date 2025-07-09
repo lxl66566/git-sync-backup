@@ -1,7 +1,7 @@
 exclude = ["target/**"]
 
 [[rule]]
-include = ["**/Cargo.toml", ".taplo.toml", "Cargo.toml", "rustfmt.toml"]
+include = ["**/Cargo.toml", ".taplo.toml", "Cargo.toml", "rustfmt.toml", ".gsb.config.toml"]
 
 
 [rule.formatting]

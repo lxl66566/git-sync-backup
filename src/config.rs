@@ -12,6 +12,8 @@ pub struct Config {
     pub git: GitConfig,
     #[serde(rename = "item")]
     pub items: Vec<Item>,
+    #[serde(default)]
+    pub aliases: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -34,10 +36,16 @@ pub struct Item {
 }
 
 impl Item {
-    /// 根据当前设备名获取源路径
-    pub fn get_source_for_device(&self, device_name: &str) -> Option<PathBuf> {
+    /// 根据当前设备名或别名获取源路径
+    pub fn get_source_for_device(
+        &self,
+        device_identifier: &str,
+        aliases: &HashMap<String, String>,
+    ) -> Option<PathBuf> {
+        let actual_device_hash = get_actual_device_hash(device_identifier, aliases);
+
         if let Some(sources) = &self.sources {
-            if let Some(path) = sources.get(device_name) {
+            if let Some(path) = sources.get(&actual_device_hash) {
                 return Some(path.clone());
             }
         }
@@ -47,4 +55,17 @@ impl Item {
 
 fn default_sync_interval() -> u64 {
     3600
+}
+
+/// 输入 device name 或其 alias，解析为实际的设备哈希
+#[inline]
+pub fn get_actual_device_hash(
+    device_identifier: &str,
+    aliases: &HashMap<String, String>,
+) -> String {
+    aliases
+        .get(device_identifier)
+        .map_or(device_identifier.to_string(), |alias_hash| {
+            alias_hash.to_string()
+        })
 }

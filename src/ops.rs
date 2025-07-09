@@ -6,13 +6,13 @@ use std::{
 };
 
 use fs_extra::{
-    dir::{copy as copy_dir, CopyOptions},
-    file::{copy as copy_file, CopyOptions as FileCopyOptions},
+    dir::{CopyOptions, copy as copy_dir},
+    file::{CopyOptions as FileCopyOptions, copy as copy_file},
 };
 use rayon::prelude::*;
 
 use crate::{
-    config::Config,
+    config::{Config, get_actual_device_hash},
     error::{GsbError, Result},
     git::GsbRepo,
     utils::{self, expand_tilde},
@@ -26,7 +26,13 @@ pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
 
     // Use Rayon for parallel processing
     config.items.par_iter().try_for_each(|item| -> Result<()> {
-        if item.ignore_collect.contains(&device_name) {
+        // ignore_collect 内可以填写原始 device name 或其 alias，因此两种都要检查
+        let mut mapped = item
+            .ignore_collect
+            .iter()
+            .map(|x| get_actual_device_hash(x, &config.aliases));
+        if item.ignore_collect.iter().any(|x| x == &device_name) && mapped.any(|x| x == device_name)
+        {
             log::info!(
                 "Skipping collect for '{}' on this device.",
                 item.path_in_repo
@@ -34,9 +40,11 @@ pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
             return Ok(());
         }
 
-        let source_path = item.get_source_for_device(&device_name).ok_or_else(|| {
-            GsbError::SourcePathNotFound(item.path_in_repo.clone(), device_name.clone())
-        })?;
+        let source_path = item
+            .get_source_for_device(&device_name, &config.aliases)
+            .ok_or_else(|| {
+                GsbError::SourcePathNotFound(item.path_in_repo.clone(), device_name.clone())
+            })?;
 
         // Expand tilde in path
         let source_path = expand_tilde(source_path);
@@ -103,7 +111,13 @@ pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
 
     // Use Rayon for parallel processing
     config.items.par_iter().try_for_each(|item| -> Result<()> {
-        if item.ignore_restore.contains(&device_name) {
+        // ignore_restore 内可以填写原始 device name 或其 alias，因此两种都要检查
+        let mut mapped = item
+            .ignore_restore
+            .iter()
+            .map(|x| get_actual_device_hash(x, &config.aliases));
+        if item.ignore_restore.iter().any(|x| x == &device_name) && mapped.any(|x| x == device_name)
+        {
             log::info!(
                 "Skipping restore for '{}' on this device.",
                 item.path_in_repo
@@ -112,9 +126,11 @@ pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
         }
 
         let source_path = repo_root.join(&item.path_in_repo);
-        let dest_path = item.get_source_for_device(&device_name).ok_or_else(|| {
-            GsbError::SourcePathNotFound(item.path_in_repo.clone(), device_name.clone())
-        })?;
+        let dest_path = item
+            .get_source_for_device(&device_name, &config.aliases)
+            .ok_or_else(|| {
+                GsbError::SourcePathNotFound(item.path_in_repo.clone(), device_name.clone())
+            })?;
 
         // Expand tilde in path
         let dest_path = expand_tilde(dest_path);
@@ -242,6 +258,10 @@ mod tests {
         let config = Config {
             version: "0.1.0".to_string(),
             sync_interval: 3600,
+            aliases: HashMap::from([(
+                "alias1".to_string(),
+                utils::get_current_device_name().unwrap(),
+            )]), // test alias
             git: GitConfig {
                 remote: None,
                 branch: None,
@@ -276,7 +296,7 @@ mod tests {
                     default_source: Some(work_dir.path().join("ignored_source.txt")),
                     is_hardlink: false,
                     sources: Some(HashMap::from([(
-                        utils::get_current_device_name().unwrap(),
+                        "alias1".to_string(),
                         work_dir.path().join("ignored_source.txt"),
                     )])),
                     ignore_collect: vec![utils::get_current_device_name().unwrap()], /* 忽略当前设备的收集 */
