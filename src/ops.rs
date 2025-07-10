@@ -3,7 +3,7 @@ use std::{
     io::{self, BufReader, Read},
     path::Path,
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, UNIX_EPOCH},
 };
 
 use fuck_backslash::FuckBackslash;
@@ -188,7 +188,7 @@ fn copy_item_all(from: &Path, to: &Path, is_hardlink: bool) -> Result<()> {
 }
 
 /// 处理 `collect` 命令
-pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
+pub fn handle_collect(config: &Config, repo_root: &Path, autocommit: bool) -> Result<()> {
     info!("Starting collection process...");
     let device_name = utils::get_current_device_name()?;
     let repo = GsbRepo::open(repo_root)?;
@@ -224,14 +224,15 @@ pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
         Ok(())
     })?;
 
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let commit_message = format!("gsb collect on {device_name} at {timestamp}");
-    repo.add_and_commit(&commit_message)?;
-
     info!("Collection process finished.");
+    if autocommit {
+        let timestamp = chrono::Local::now();
+        let commit_message = format!(
+            "gsb collect on {device_name} at {}",
+            timestamp.format("%Y-%m-%d %H:%M:%S")
+        );
+        repo.add_and_commit(&commit_message)?;
+    }
     Ok(())
 }
 
@@ -430,7 +431,7 @@ mod tests {
             .unwrap();
 
         // 2. 运行 collect
-        handle_collect(&config, repo_root).unwrap();
+        handle_collect(&config, repo_root, true).unwrap();
 
         // 3. 验证结果
 

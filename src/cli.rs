@@ -12,7 +12,11 @@ pub struct Cli {
 pub enum Commands {
     /// Collect all specified items into the git repository
     #[command(alias = "c")]
-    Collect,
+    Collect {
+        /// Whether to automatically commit the changes
+        #[arg(short, long)]
+        autocommit: bool,
+    },
 
     /// Restore all specified items from the git repository to local paths
     #[command(alias = "r")]

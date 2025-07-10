@@ -45,9 +45,10 @@ impl Item {
         let actual_device_hash = get_actual_device_hash(device_identifier, aliases);
 
         if let Some(sources) = &self.sources
-            && let Some(path) = sources.get(&actual_device_hash) {
-                return Some(path.clone());
-            }
+            && let Some(path) = sources.get(&actual_device_hash)
+        {
+            return Some(path.clone());
+        }
         self.default_source.clone()
     }
 }

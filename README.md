@@ -9,6 +9,7 @@ English | [简体中文](./README-zh_CN.md)
 `gsb` offers the following core commands:
 
 1.  **`gsb c` or `gsb collect`**: Synchronizes all configured files/folders to the current Git repository.
+    - You can specify the `--autocommit` argument to automatically commit the collected updates.
 2.  **`gsb r` or `gsb restore`**: Synchronizes all files/folders from the current Git repository to specified local locations.
 3.  **`gsb s` or `gsb sync`**: Runs continuously in the background, fetching updates from the remote repository at fixed intervals and applying the updated files locally.
 

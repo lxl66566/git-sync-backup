@@ -51,8 +51,8 @@ fn run() -> Result<()> {
 
     // 根据子命令执行相应操作
     match cli.command {
-        Commands::Collect => {
-            ops::handle_collect(&config, &repo_root)?;
+        Commands::Collect { autocommit } => {
+            ops::handle_collect(&config, &repo_root, autocommit)?;
         }
         Commands::Restore => {
             ops::handle_restore(&config, &repo_root)?;
