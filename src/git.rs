@@ -43,13 +43,13 @@ impl GsbRepo {
             &[&parent_commit],
         )?;
 
-        log::info!("Committed changes with message: {}", message);
+        log::info!("Committed changes with message: {message}");
         Ok(())
     }
 
     /// 从远程拉取更新
     pub fn pull(&self, remote_name: &str, branch_name: &str) -> Result<()> {
-        log::info!("Fetching from remote '{}'...", remote_name);
+        log::info!("Fetching from remote '{remote_name}'...");
         let mut remote = self.repo.find_remote(remote_name)?;
         remote.fetch(&[branch_name], None, None)?;
 
@@ -64,7 +64,7 @@ impl GsbRepo {
             Ok(())
         } else if analysis.is_fast_forward() {
             log::info!("Fast-forwarding...");
-            let ref_name = format!("refs/heads/{}", branch_name);
+            let ref_name = format!("refs/heads/{branch_name}");
             let mut reference = self.repo.find_reference(&ref_name)?;
             reference.set_target(fetch_head_oid, "Fast-Forward")?;
             self.repo.set_head(&ref_name)?;

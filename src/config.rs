@@ -44,11 +44,10 @@ impl Item {
     ) -> Option<PathBuf> {
         let actual_device_hash = get_actual_device_hash(device_identifier, aliases);
 
-        if let Some(sources) = &self.sources {
-            if let Some(path) = sources.get(&actual_device_hash) {
+        if let Some(sources) = &self.sources
+            && let Some(path) = sources.get(&actual_device_hash) {
                 return Some(path.clone());
             }
-        }
         self.default_source.clone()
     }
 }
@@ -68,4 +67,30 @@ pub fn get_actual_device_hash(
         .map_or(device_identifier.to_string(), |alias_hash| {
             alias_hash.to_string()
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn extract_toml_blocks(input: &str) -> Vec<String> {
+        input
+            .split("```toml") // 先按起始标记分割
+            .skip(1) // 跳过第一个部分（起始标记之前的内容）
+            .filter_map(|block| {
+                block
+                    .split("```")
+                    .next() // 再按结束标记分割，取第一个部分
+                    .map(|s| s.trim().to_string())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_parse_config_file() {
+        let readme = include_str!("../README-zh_CN.md");
+        let config_str = extract_toml_blocks(readme).join("\n");
+        let config: Config = toml::from_str(&config_str).unwrap();
+        dbg!(config);
+    }
 }

@@ -6,6 +6,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use fuck_backslash::FuckBackslash;
 use rayon::prelude::*;
 
 use crate::{
@@ -69,15 +70,15 @@ fn are_contents_equal(path1: &Path, path2: &Path) -> io::Result<bool> {
 ///   - 递归地对目录内容应用相同的智能拷贝逻辑。
 fn copy_item(from: &Path, to: &Path) -> Result<()> {
     if !from.exists() {
-        log::warn!("Source path does not exist, skipping sync: {:?}", from);
+        log::warn!("Source path does not exist, skipping sync: {from:?}");
         return Ok(());
     }
 
     // 如果目标路径的父目录不存在，则创建它
-    if let Some(parent) = to.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = to.parent()
+        && !parent.exists()
+    {
+        fs::create_dir_all(parent)?;
     }
 
     if from.is_dir() {
@@ -114,9 +115,7 @@ fn copy_item(from: &Path, to: &Path) -> Result<()> {
                 } else {
                     // 3. 备用方案：修改时间不可用，回退到更可靠但较慢的逐字节比较。
                     log::warn!(
-                        "Could not read modification time for {:?} or {:?}. Falling back to byte-by-byte comparison.",
-                        from,
-                        to
+                        "Could not read modification time for {from:?} or {to:?}. Falling back to byte-by-byte comparison."
                     );
                     if are_contents_equal(from, to)? {
                         should_copy = false; // 文件内容相同，跳过复制。
@@ -126,10 +125,10 @@ fn copy_item(from: &Path, to: &Path) -> Result<()> {
         }
 
         if should_copy {
-            log::debug!("Copying file: {:?} -> {:?}", from, to);
+            log::debug!("Copying file: {from:?} -> {to:?}");
             fs::copy(from, to)?;
         } else {
-            log::trace!("Skipping unchanged file: {:?}", from);
+            log::trace!("Skipping unchanged file: {from:?}");
         }
     }
 
@@ -165,23 +164,19 @@ pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
             })?;
 
         // Expand tilde in path
-        let source_path = expand_tilde(source_path);
+        let source_path = expand_tilde(source_path).fuck_backslash();
 
-        let dest_path = repo_root.join(&item.path_in_repo);
+        let dest_path = repo_root.join(&item.path_in_repo).fuck_backslash();
 
         if !source_path.exists() {
-            log::warn!("Source path does not exist, skipping: {:?}", source_path);
+            log::warn!("Source path does not exist, skipping: {source_path:?}");
             return Ok(());
         }
 
         // Handle hardlinks
         if item.is_hardlink {
-            log::info!(
-                "Linking (hardlink) '{:?}' -> '{:?}'",
-                source_path,
-                dest_path
-            );
-            // 对于硬链接，仍然需要先删除旧的，因为硬链接无法“更新”
+            log::info!("Linking (hardlink) {source_path:?} -> {dest_path:?}");
+            // 如果目标已存在，先删除，以确保可以创建新的硬链接
             if dest_path.exists() {
                 if dest_path.is_dir() {
                     fs::remove_dir_all(&dest_path)?;
@@ -196,8 +191,15 @@ pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
             fs::hard_link(&source_path, &dest_path)
                 .map_err(|_| GsbError::HardlinkFailed(source_path.clone(), dest_path.clone()))?;
         } else {
-            log::info!("Collecting '{:?}' -> '{:?}'", source_path, dest_path);
-            // 拷贝文件夹
+            log::info!("Collecting {source_path:?} -> {dest_path:?}");
+            // 如果目标已存在，先删除，避免合并问题
+            if dest_path.exists() {
+                if dest_path.is_dir() {
+                    fs::remove_dir_all(&dest_path)?;
+                } else {
+                    fs::remove_file(&dest_path)?;
+                }
+            }
             copy_item(&source_path, &dest_path)?;
         }
         Ok(())
@@ -207,7 +209,7 @@ pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    let commit_message = format!("gsb collect on {} at {}", device_name, timestamp);
+    let commit_message = format!("gsb collect on {device_name} at {timestamp}");
     repo.add_and_commit(&commit_message)?;
 
     log::info!("Collection process finished.");
@@ -246,20 +248,13 @@ pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
         let dest_path = expand_tilde(dest_path);
 
         if !source_path.exists() {
-            log::warn!(
-                "Source path in repo does not exist, skipping: {:?}",
-                source_path
-            );
+            log::warn!("Source path in repo does not exist, skipping: {source_path:?}");
             return Ok(());
         }
 
         // Handle hardlinks
         if item.is_hardlink {
-            log::info!(
-                "Linking (hardlink) '{:?}' -> '{:?}'",
-                source_path,
-                dest_path
-            );
+            log::info!("Linking (hardlink) {source_path:?} -> {dest_path:?}");
             if dest_path.exists() {
                 if dest_path.is_dir() {
                     fs::remove_dir_all(&dest_path)?;
@@ -274,8 +269,7 @@ pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
             fs::hard_link(&source_path, &dest_path)
                 .map_err(|_| GsbError::HardlinkFailed(source_path.clone(), dest_path.clone()))?;
         } else {
-            log::info!("Restoring '{:?}' -> '{:?}'", source_path, dest_path);
-            // 拷贝文件夹
+            log::info!("Restoring {source_path:?} -> {dest_path:?}");
             copy_item(&source_path, &dest_path)?;
         }
         Ok(())
@@ -303,15 +297,15 @@ pub fn handle_sync(config: &Config, repo_root: &Path) -> Result<()> {
             Ok(_) => {
                 log::info!("Pull successful, now restoring files...");
                 if let Err(e) = handle_restore(config, repo_root) {
-                    log::error!("Failed to restore after pull: {}", e);
+                    log::error!("Failed to restore after pull: {e}");
                 }
             }
             Err(e) => {
-                log::error!("Failed to pull from remote: {}", e);
+                log::error!("Failed to pull from remote: {e}");
             }
         }
 
-        log::info!("Sync cycle finished. Sleeping for {:?}...", sleep_duration);
+        log::info!("Sync cycle finished. Sleeping for {sleep_duration:?}...");
         thread::sleep(sleep_duration);
     }
 }

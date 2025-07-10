@@ -48,10 +48,10 @@ pub fn find_repo_root() -> Result<PathBuf> {
 }
 
 pub fn expand_tilde(path: PathBuf) -> PathBuf {
-    if let Ok(stripped) = path.strip_prefix("~") {
-        if let Some(home) = home_dir() {
-            return home.join(stripped);
-        }
+    if let Ok(stripped) = path.strip_prefix("~")
+        && let Some(home) = home_dir()
+    {
+        return home.join(stripped);
     }
     path
 }

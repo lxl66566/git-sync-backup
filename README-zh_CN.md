@@ -20,7 +20,7 @@
 
 ```toml
 sync_interval = 3600    # gsb sync 同步间隔，单位为秒
-version       = "0.1.2" # gsb 版本
+version       = "0.1.3" # gsb 版本
 
 # (Optional) Git 相关配置
 [git]
