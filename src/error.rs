@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 
 use thiserror::Error;
 
@@ -24,11 +23,6 @@ pub enum GsbError {
 
     #[error("Source path not found for item '{0}' on device '{1}'.")]
     SourcePathNotFound(String, String),
-
-    #[error(
-        "Failed to create hardlink from {0:?} to {1:?}. This can happen on different filesystems/partitions."
-    )]
-    HardlinkFailed(PathBuf, PathBuf),
 }
 
 pub type Result<T> = std::result::Result<T, GsbError>;

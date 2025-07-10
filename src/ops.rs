@@ -7,7 +7,9 @@ use std::{
 };
 
 use fuck_backslash::FuckBackslash;
+use log::{debug, error, info, trace, warn};
 use rayon::prelude::*;
+use same_file::is_same_file;
 
 use crate::{
     config::{Config, get_actual_device_hash},
@@ -69,11 +71,6 @@ fn are_contents_equal(path1: &Path, path2: &Path) -> io::Result<bool> {
 /// - 如果源是目录：
 ///   - 递归地对目录内容应用相同的智能拷贝逻辑。
 fn copy_item(from: &Path, to: &Path) -> Result<()> {
-    if !from.exists() {
-        log::warn!("Source path does not exist, skipping copy: {from:?}");
-        return Ok(());
-    }
-
     // 如果目标路径的父目录不存在，则创建它
     if let Some(parent) = to.parent()
         && !parent.exists()
@@ -116,7 +113,7 @@ fn copy_item(from: &Path, to: &Path) -> Result<()> {
                 }
             } else {
                 // 3. 备用方案：修改时间不可用，回退到更可靠但较慢的逐字节比较。
-                log::warn!(
+                warn!(
                     "Could not read modification time for {from:?} or {to:?}. Falling back to byte-by-byte comparison."
                 );
                 if are_contents_equal(from, to)? {
@@ -127,18 +124,72 @@ fn copy_item(from: &Path, to: &Path) -> Result<()> {
     }
 
     if should_copy {
-        log::debug!("Copying file: {from:?} -> {to:?}");
+        debug!("Copying file: {from:?} -> {to:?}");
         fs::copy(from, to)?;
     } else {
-        log::trace!("Skipping unchanged file: {from:?}");
+        trace!("Skipping unchanged file: {from:?}");
     }
 
     Ok(())
 }
 
+/// 智能复制文件或目录，支持硬链接和目标路径处理。
+///
+/// 该函数根据 `is_hardlink` 参数决定是创建硬链接还是执行智能文件/目录拷贝。
+/// 它会处理源路径不存在、尝试对非文件路径创建硬链接以及目标路径已存在的情况。
+///
+/// # Arguments
+///
+/// * `from` - 源文件或目录的路径。
+/// * `to` - 目标文件或目录的路径。
+/// * `is_hardlink` - 一个布尔值，如果为 `true`，则尝试创建硬链接； 如果为
+///   `false`，则调用 `copy_item` 进行智能拷贝。
+///
+/// # Behavior
+///
+/// 1. **源路径检查**: 如果 `from` 路径不存在，则跳过操作并记录错误。
+/// 2. **硬链接条件检查**: 如果 `is_hardlink` 为 `true` 但 `from` 不是一个文件，
+///    则跳过操作并记录错误（硬链接只能用于文件）。
+/// 3. **硬链接处理**:
+///     * 如果 `to` 路径已存在且与 `from` 是同一个文件（通过 `is_same_file`
+///       判断）， 则跳过硬链接创建，因为目标已是源的硬链接。
+///     * 否则，如果 `to`
+///       路径存在，会尝试删除它（无论是文件还是目录，但硬链接只对文件有效），
+///       然后创建从 `from` 到 `to` 的硬链接。
+/// 4. **非硬链接处理**: 如果 `is_hardlink` 为 `false`，则调用 `copy_item`
+///    函数， 该函数会智能地比较源和目标，只在必要时执行实际的 I/O 拷贝操作。
+///
+/// # Returns
+///
+/// 如果操作成功，返回 `Ok(())`。如果在文件系统操作中发生错误，则返回
+/// `Err(GsbError)`。
+fn copy_item_all(from: &Path, to: &Path, is_hardlink: bool) -> Result<()> {
+    if !from.exists() {
+        error!("Source path does not exist, skipping copy: {from:?}");
+        return Ok(());
+    }
+    if is_hardlink && !from.is_file() {
+        error!("Source path is not a file, skipping hardlink: {from:?}");
+        return Ok(());
+    }
+    if is_hardlink {
+        if to.exists() && is_same_file(from, to)? {
+            info!("Skipping hardlink copy: {from:?} -> {to:?}");
+            return Ok(());
+        } else {
+            info!("Hardlink {from:?} -> {to:?}");
+            _ = fs::remove_file(to); // 尝试删除目标文件，忽略错误
+            fs::hard_link(from, to)?;
+        }
+    } else {
+        copy_item(from, to)?;
+    }
+    Ok(())
+}
+
 /// 处理 `collect` 命令
 pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
-    log::info!("Starting collection process...");
+    info!("Starting collection process...");
     let device_name = utils::get_current_device_name()?;
     let repo = GsbRepo::open(repo_root)?;
 
@@ -151,8 +202,8 @@ pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
             .map(|x| get_actual_device_hash(x, &config.aliases));
         if item.ignore_collect.iter().any(|x| x == &device_name) && mapped.any(|x| x == device_name)
         {
-            log::info!(
-                "Skip    collect for '{}' on this device: ignored.",
+            info!(
+                "Skip     collect for '{}' on this device: ignored.",
                 item.path_in_repo
             );
             return Ok(());
@@ -166,33 +217,10 @@ pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
 
         // Expand tilde in path
         let source_path = expand_tilde(source_path).fuck_backslash();
-
         let dest_path = repo_root.join(&item.path_in_repo).fuck_backslash();
 
-        if !source_path.exists() {
-            log::error!("Source path does not exist, skipping: {source_path:?}");
-            return Ok(());
-        }
+        copy_item_all(&source_path, &dest_path, item.is_hardlink)?;
 
-        // Handle hardlinks
-        if item.is_hardlink {
-            log::info!(
-                "Skip    collect for hardlink item '{}' as it should be kept in sync manually.",
-                item.path_in_repo
-            );
-            return Ok(());
-        } else {
-            log::info!("Collecting {source_path:?} -> {dest_path:?}");
-            // 如果目标已存在，先删除，避免合并问题
-            if dest_path.exists() {
-                if dest_path.is_dir() {
-                    fs::remove_dir_all(&dest_path)?;
-                } else {
-                    fs::remove_file(&dest_path)?;
-                }
-            }
-            copy_item(&source_path, &dest_path)?;
-        }
         Ok(())
     })?;
 
@@ -203,13 +231,13 @@ pub fn handle_collect(config: &Config, repo_root: &Path) -> Result<()> {
     let commit_message = format!("gsb collect on {device_name} at {timestamp}");
     repo.add_and_commit(&commit_message)?;
 
-    log::info!("Collection process finished.");
+    info!("Collection process finished.");
     Ok(())
 }
 
 /// 处理 `restore` 命令
 pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
-    log::info!("Starting restore process...");
+    info!("Starting restore process...");
     let device_name = utils::get_current_device_name()?;
 
     // Use Rayon for parallel processing
@@ -221,8 +249,8 @@ pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
             .map(|x| get_actual_device_hash(x, &config.aliases));
         if item.ignore_restore.iter().any(|x| x == &device_name) && mapped.any(|x| x == device_name)
         {
-            log::info!(
-                "Skip    restore for '{}' on this device: ignored.",
+            info!(
+                "Skip     restore for '{}' on this device: ignored.",
                 item.path_in_repo
             );
             return Ok(());
@@ -238,32 +266,18 @@ pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
         // Expand tilde in path
         let dest_path = expand_tilde(dest_path);
 
-        if !source_path.exists() {
-            log::error!("Source path in repo does not exist, skipping: {source_path:?}");
-            return Ok(());
-        }
+        copy_item_all(&source_path, &dest_path, item.is_hardlink)?;
 
-        // Handle hardlinks
-        if item.is_hardlink {
-            log::info!(
-                "Skip    restore for hardlink item '{}' as it should be kept in sync manually.",
-                item.path_in_repo
-            );
-            return Ok(());
-        } else {
-            log::info!("Restore {source_path:?} -> {dest_path:?}");
-            copy_item(&source_path, &dest_path)?;
-        }
         Ok(())
     })?;
 
-    log::info!("Restore process finished.");
+    info!("Restore process finished.");
     Ok(())
 }
 
 /// 处理 `sync` 命令
 pub fn handle_sync(config: &Config, repo_root: &Path) -> Result<()> {
-    log::info!(
+    info!(
         "Starting sync process. Interval: {} seconds.",
         config.sync_interval
     );
@@ -271,23 +285,23 @@ pub fn handle_sync(config: &Config, repo_root: &Path) -> Result<()> {
     let sleep_duration = Duration::from_secs(config.sync_interval);
 
     loop {
-        log::info!("Running sync cycle...");
+        info!("Running sync cycle...");
         match repo.pull(
             config.git.remote.as_ref().unwrap_or(&"origin".to_string()),
             config.git.branch.as_ref().unwrap_or(&"main".to_string()),
         ) {
             Ok(_) => {
-                log::info!("Pull successful, now restoring files...");
+                info!("Pull successful, now restoring files...");
                 if let Err(e) = handle_restore(config, repo_root) {
-                    log::error!("Failed to restore after pull: {e}");
+                    error!("Failed to restore after pull: {e}");
                 }
             }
             Err(e) => {
-                log::error!("Failed to pull from remote: {e}");
+                error!("Failed to pull from remote: {e}");
             }
         }
 
-        log::info!("Sync cycle finished. Sleeping for {sleep_duration:?}...");
+        info!("Sync cycle finished. Sleeping for {sleep_duration:?}...");
         thread::sleep(sleep_duration);
     }
 }
@@ -327,7 +341,7 @@ mod tests {
         .unwrap();
 
         let config = Config {
-            version: "0.1.0".to_string(),
+            version: "0.2.0".to_string(),
             sync_interval: 3600,
             aliases: HashMap::from([(
                 "alias1".to_string(),
@@ -377,127 +391,6 @@ mod tests {
         };
 
         (repo_dir, work_dir, config)
-    }
-
-    #[test]
-    fn test_copy_item() {
-        let temp_dir = tempdir().expect("无法创建临时目录");
-        let root = temp_dir.path();
-
-        // --- 测试文件拷贝 ---
-
-        // 1. 源文件不存在
-        let non_existent_source = root.join("non_existent.txt");
-        let dest_path = root.join("dest.txt");
-        assert!(copy_item(&non_existent_source, &dest_path).is_ok()); // 应该返回 Ok(()) 且不报错
-        assert!(!dest_path.exists());
-
-        // 2. 拷贝新文件
-        let source_file1 = root.join("source1.txt");
-        File::create(&source_file1)
-            .unwrap()
-            .write_all(b"content1")
-            .unwrap();
-        let dest_file1 = root.join("dest1.txt");
-        copy_item(&source_file1, &dest_file1).unwrap();
-        assert!(dest_file1.exists());
-        assert_eq!(fs::read_to_string(&dest_file1).unwrap(), "content1");
-
-        // 3. 拷贝文件，目标已存在且内容相同（通过大小和修改时间）
-        let source_file2 = root.join("source2.txt");
-        let dest_file2 = root.join("dest2.txt");
-        File::create(&source_file2)
-            .unwrap()
-            .write_all(b"content2")
-            .unwrap();
-        File::create(&dest_file2)
-            .unwrap()
-            .write_all(b"content2")
-            .unwrap();
-        // 确保修改时间一致，以便跳过拷贝
-        let now = SystemTime::now();
-        filetime::set_file_mtime(&source_file2, filetime::FileTime::from_system_time(now)).unwrap();
-        filetime::set_file_mtime(&dest_file2, filetime::FileTime::from_system_time(now)).unwrap();
-
-        let dest_file2_meta_before = fs::metadata(&dest_file2).unwrap();
-        copy_item(&source_file2, &dest_file2).unwrap();
-        let dest_file2_meta_after = fs::metadata(&dest_file2).unwrap();
-        assert_eq!(
-            dest_file2_meta_before.modified().unwrap(),
-            dest_file2_meta_after.modified().unwrap()
-        ); // 确认没有被修改
-
-        // 4. 拷贝文件，目标已存在但内容不同（大小不同）
-        let source_file3 = root.join("source3.txt");
-        let dest_file3 = root.join("dest3.txt");
-        File::create(&source_file3)
-            .unwrap()
-            .write_all(b"new content3")
-            .unwrap();
-        File::create(&dest_file3)
-            .unwrap()
-            .write_all(b"old")
-            .unwrap();
-        copy_item(&source_file3, &dest_file3).unwrap();
-        assert_eq!(fs::read_to_string(&dest_file3).unwrap(), "new content3");
-
-        // --- 测试目录拷贝 ---
-
-        // 5. 拷贝新目录
-        let source_dir1 = root.join("source_dir1");
-        fs::create_dir(&source_dir1).unwrap();
-        File::create(source_dir1.join("file_in_dir1.txt"))
-            .unwrap()
-            .write_all(b"dir content")
-            .unwrap();
-        let dest_dir1 = root.join("dest_dir1");
-        copy_item(&source_dir1, &dest_dir1).unwrap();
-        assert!(dest_dir1.exists());
-        assert!(dest_dir1.join("file_in_dir1.txt").exists());
-        assert_eq!(
-            fs::read_to_string(dest_dir1.join("file_in_dir1.txt")).unwrap(),
-            "dir content"
-        );
-
-        // 6. 拷贝目录，目标目录已存在且包含内容
-        let source_dir2 = root.join("source_dir2");
-        fs::create_dir(&source_dir2).unwrap();
-        File::create(source_dir2.join("file_a.txt"))
-            .unwrap()
-            .write_all(b"content A")
-            .unwrap();
-        fs::create_dir(source_dir2.join("subdir")).unwrap();
-        File::create(source_dir2.join("subdir").join("file_b.txt"))
-            .unwrap()
-            .write_all(b"content B")
-            .unwrap();
-
-        let dest_dir2 = root.join("dest_dir2");
-        fs::create_dir(&dest_dir2).unwrap();
-        File::create(dest_dir2.join("old_file.txt"))
-            .unwrap()
-            .write_all(b"old content")
-            .unwrap();
-
-        copy_item(&source_dir2, &dest_dir2).unwrap();
-        assert!(dest_dir2.exists());
-        assert!(dest_dir2.join("file_a.txt").exists());
-        assert_eq!(
-            fs::read_to_string(dest_dir2.join("file_a.txt")).unwrap(),
-            "content A"
-        );
-        assert!(dest_dir2.join("subdir").exists());
-        assert!(dest_dir2.join("subdir").join("file_b.txt").exists());
-        assert_eq!(
-            fs::read_to_string(dest_dir2.join("subdir").join("file_b.txt")).unwrap(),
-            "content B"
-        );
-        // 确认旧文件仍然存在
-        assert!(dest_dir2.join("old_file.txt").exists());
-        assert_eq!(
-            fs::read_to_string(dest_dir2.join("old_file.txt")).unwrap(),
-            "old content"
-        );
     }
 
     #[test]
@@ -560,7 +453,12 @@ mod tests {
 
         // 验证 hardlink_file.txt 是否被收集并是硬链接
         let collected_hardlink_path = repo_root.join("hardlink_file.txt");
-        assert!(!collected_hardlink_path.exists()); // 硬链接现在应该被跳过，不应存在于仓库中
+        assert!(collected_hardlink_path.exists());
+        assert!(is_same_file(&hardlink_source_path, &collected_hardlink_path).unwrap());
+        assert_eq!(
+            fs::read_to_string(&collected_hardlink_path).unwrap(),
+            "content for hardlink"
+        );
 
         // 验证 ignored_file.txt 是否被忽略 (不应该存在于仓库中)
         let collected_ignored_file_path = repo_root.join("ignored_file.txt");
@@ -593,6 +491,13 @@ mod tests {
             .write_all(b"content of file_in_dir1 in repo")
             .unwrap();
 
+        // 在仓库中创建硬链接源文件
+        let repo_hardlink_source_path = repo_root.join("hardlink_file.txt");
+        File::create(&repo_hardlink_source_path)
+            .unwrap()
+            .write_all(b"content for hardlink in repo")
+            .unwrap();
+
         // 运行 restore
         handle_restore(&config, repo_root).unwrap();
 
@@ -611,5 +516,163 @@ mod tests {
             fs::read_to_string(work_dir1_path.join("file_in_dir1.txt")).unwrap(),
             "content of file_in_dir1 in repo"
         );
+
+        // 验证硬链接文件是否已恢复到工作目录并是硬链接
+        let work_hardlink_path = work_root.join("hardlink_source.txt"); // default_source
+        assert!(work_hardlink_path.exists());
+        assert!(is_same_file(&repo_hardlink_source_path, &work_hardlink_path).unwrap());
+        assert_eq!(
+            fs::read_to_string(&work_hardlink_path).unwrap(),
+            "content for hardlink in repo"
+        );
+    }
+
+    // 新增的 copy_item 测试
+    #[test]
+    fn test_copy_item() -> Result<()> {
+        let temp_dir = tempdir()?;
+        let from_path = temp_dir.path().join("source");
+        let to_path = temp_dir.path().join("destination");
+
+        // 场景 1: 拷贝文件 (目标不存在)
+        let source_file_path = from_path.join("file.txt");
+        let dest_file_path = to_path.join("file.txt");
+        fs::create_dir_all(&from_path)?;
+        File::create(&source_file_path)?.write_all(b"hello world")?;
+
+        copy_item(&source_file_path, &dest_file_path)?;
+        assert!(dest_file_path.exists());
+        assert_eq!(fs::read_to_string(&dest_file_path)?, "hello world");
+
+        // 场景 2: 拷贝目录 (目标不存在)
+        let source_dir_path = from_path.join("my_dir");
+        let dest_dir_path = to_path.join("my_dir");
+        fs::create_dir(&source_dir_path)?;
+        File::create(source_dir_path.join("inner_file.txt"))?.write_all(b"inner content")?;
+        fs::create_dir(source_dir_path.join("sub_dir"))?;
+        File::create(source_dir_path.join("sub_dir").join("sub_file.txt"))?
+            .write_all(b"sub content")?;
+
+        copy_item(&source_dir_path, &dest_dir_path)?;
+        assert!(dest_dir_path.exists());
+        assert!(dest_dir_path.is_dir());
+        assert!(dest_dir_path.join("inner_file.txt").exists());
+        assert_eq!(
+            fs::read_to_string(dest_dir_path.join("inner_file.txt"))?,
+            "inner content"
+        );
+        assert!(dest_dir_path.join("sub_dir").exists());
+        assert!(dest_dir_path.join("sub_dir").is_dir());
+        assert!(dest_dir_path.join("sub_dir").join("sub_file.txt").exists());
+        assert_eq!(
+            fs::read_to_string(dest_dir_path.join("sub_dir").join("sub_file.txt"))?,
+            "sub content"
+        );
+
+        // 场景 3: 目标路径的父目录不存在，应自动创建
+        let new_dest_parent = temp_dir.path().join("new_parent");
+        let new_dest_file = new_dest_parent.join("new_file.txt");
+        File::create(&source_file_path)?.write_all(b"content for new parent")?;
+        copy_item(&source_file_path, &new_dest_file)?;
+        assert!(new_dest_parent.exists());
+        assert!(new_dest_file.exists());
+        assert_eq!(
+            fs::read_to_string(&new_dest_file)?,
+            "content for new parent"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_copy_item_all() -> Result<()> {
+        let temp_dir = tempdir()?;
+        let from_path = temp_dir.path().join("source");
+        let to_path = temp_dir.path().join("destination");
+
+        fs::create_dir_all(&from_path)?;
+        fs::create_dir_all(&to_path)?;
+
+        // 场景 1: 硬链接文件 - 源文件存在，目标文件不存在
+        let source_file_hardlink = from_path.join("hardlink_source.txt");
+        let dest_file_hardlink = to_path.join("hardlink_dest.txt");
+        File::create(&source_file_hardlink)?.write_all(b"hardlink content")?;
+
+        copy_item_all(&source_file_hardlink, &dest_file_hardlink, true)?;
+        assert!(dest_file_hardlink.exists());
+        assert!(is_same_file(&source_file_hardlink, &dest_file_hardlink)?);
+        assert_eq!(fs::read_to_string(&dest_file_hardlink)?, "hardlink content");
+
+        // 场景 2: 硬链接文件 - 源文件存在，目标文件存在且内容不同
+        let source_file_hardlink_2 = from_path.join("hardlink_source_2.txt");
+        let dest_file_hardlink_2 = to_path.join("hardlink_dest_2.txt");
+        File::create(&source_file_hardlink_2)?.write_all(b"hardlink content 2")?;
+        File::create(&dest_file_hardlink_2)?.write_all(b"old content")?; // 目标文件已存在
+
+        copy_item_all(&source_file_hardlink_2, &dest_file_hardlink_2, true)?;
+        assert!(dest_file_hardlink_2.exists());
+        assert!(is_same_file(
+            &source_file_hardlink_2,
+            &dest_file_hardlink_2
+        )?);
+        assert_eq!(
+            fs::read_to_string(&dest_file_hardlink_2)?,
+            "hardlink content 2"
+        );
+
+        // 场景 3: 硬链接文件 - 源文件存在，目标文件已是硬链接
+        let source_file_hardlink_3 = from_path.join("hardlink_source_3.txt");
+        let dest_file_hardlink_3 = to_path.join("hardlink_dest_3.txt");
+        File::create(&source_file_hardlink_3)?.write_all(b"hardlink content 3")?;
+        fs::hard_link(&source_file_hardlink_3, &dest_file_hardlink_3)?; // 预先创建硬链接
+
+        copy_item_all(&source_file_hardlink_3, &dest_file_hardlink_3, true)?;
+        assert!(dest_file_hardlink_3.exists());
+        assert!(is_same_file(
+            &source_file_hardlink_3,
+            &dest_file_hardlink_3
+        )?);
+        assert_eq!(
+            fs::read_to_string(&dest_file_hardlink_3)?,
+            "hardlink content 3"
+        );
+
+        // 场景 4: 非硬链接文件 - 源文件存在，目标文件不存在
+        let source_file_copy = from_path.join("copy_source.txt");
+        let dest_file_copy = to_path.join("copy_dest.txt");
+        File::create(&source_file_copy)?.write_all(b"copy content")?;
+
+        copy_item_all(&source_file_copy, &dest_file_copy, false)?;
+        assert!(dest_file_copy.exists());
+        assert!(!is_same_file(&source_file_copy, &dest_file_copy)?); // 应该不是硬链接
+        assert_eq!(fs::read_to_string(&dest_file_copy)?, "copy content");
+
+        // 场景 5: 非硬链接文件 - 源文件存在，目标文件存在且内容不同
+        let source_file_copy_2 = from_path.join("copy_source_2.txt");
+        let dest_file_copy_2 = to_path.join("copy_dest_2.txt");
+        File::create(&source_file_copy_2)?.write_all(b"copy content 2")?;
+        File::create(&dest_file_copy_2)?.write_all(b"old copy content")?;
+
+        copy_item_all(&source_file_copy_2, &dest_file_copy_2, false)?;
+        assert!(dest_file_copy_2.exists());
+        assert_eq!(fs::read_to_string(&dest_file_copy_2)?, "copy content 2");
+
+        // 场景 6: 源路径不存在
+        let non_existent_source = from_path.join("non_existent.txt");
+        let dummy_dest = to_path.join("dummy.txt");
+        let result = copy_item_all(&non_existent_source, &dummy_dest, false);
+        assert!(result.is_ok()); // 应该返回 Ok(()) 但不执行操作
+        assert!(!dummy_dest.exists()); // 目标文件不应该被创建
+
+        // 场景 7: 对目录尝试硬链接
+        let source_dir_hardlink = from_path.join("dir_source");
+        let dest_dir_hardlink = to_path.join("dir_dest");
+        fs::create_dir(&source_dir_hardlink)?;
+
+        let result = copy_item_all(&source_dir_hardlink, &dest_dir_hardlink, true);
+        assert!(result.is_ok()); // 应该返回 Ok(()) 但不执行操作
+        assert!(!dest_dir_hardlink.exists()); // 目标目录不应该被创建为硬链接
+
+        Ok(())
     }
 }

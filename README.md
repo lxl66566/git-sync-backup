@@ -20,7 +20,7 @@ The `gsb` configuration file is `.gsb.config.toml` located at the root of the re
 
 ```toml
 sync_interval = 3600    # GSB sync interval in seconds
-version       = "0.1.3" # GSB version
+version       = "0.2.0" # GSB version
 
 # (Optional) Git-related configurations
 [git]
