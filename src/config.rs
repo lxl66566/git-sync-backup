@@ -33,6 +33,8 @@ pub struct Item {
     pub ignore_collect: Vec<String>,
     #[serde(default)]
     pub ignore_restore: Vec<String>,
+    #[serde(default)]
+    pub ignore: Vec<String>,
 }
 
 impl Item {

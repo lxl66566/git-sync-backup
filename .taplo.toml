@@ -1,14 +1,14 @@
 exclude = ["target/**"]
 
 [[rule]]
-include = ["**/Cargo.toml", ".taplo.toml", "Cargo.toml", "rustfmt.toml", ".gsb.config.toml"]
+include = [".gsb.config.toml"]
 
 
 [rule.formatting]
-align_comments       = true
-align_entries        = true
+align_comments = true
+align_entries = true
 array_trailing_comma = true
-column_width         = 100
-inline_table_expand  = false
-reorder_keys         = true
-trailing_newline     = true
+column_width = 100
+inline_table_expand = false
+reorder_keys = true
+trailing_newline = true

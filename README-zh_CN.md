@@ -21,7 +21,7 @@
 
 ```toml
 sync_interval = 3600    # gsb sync 同步间隔，单位为秒
-version       = "0.2.0" # gsb 版本
+version       = "0.2.1" # gsb 版本
 
 # (Optional) Git 相关配置
 [git]
@@ -31,20 +31,22 @@ remote = "origin" # gsb sync 时使用的远程仓库名（Optional, default = "
 # (Optional) 设备 ID 的别名。设备 ID 可以通过 gsb d 或 gsb device 查看。
 [aliases]
 device1 = "d37ef0ee-3c3f-419a-8c32-66526565b4ae"
+device3 = "f4e5d1f2-4d5e-4a9f-9c3d-66526565b4ae"
 
 # 定义一个需要同步或备份的项。可以有多个 `[[item]]`。
 [[item]]
-path_in_repo   = "test"                 # 项目在仓库中的相对路径
 default_source = "C:/Program Files/gsb" # (Optional) 默认路径
 is_hardlink    = true                   # (Optional) 如果设置为 `true`，则表示仓库中的文件与 `path` 位置是硬链接。在 `collect` 和 `restore` 时不会处理这些文件。不可对文件夹使用。
+path_in_repo   = "test"                 # 项目在仓库中的相对路径
 
 [[item]]
-path_in_repo   = "test2"                                  # 项目在仓库中的相对路径
+path_in_repo = "test2" # 项目在仓库中的相对路径
+ignore                                       = ["device3"]                              # (Optional) 等于同时放入 `ignore_collect` 和 `ignore_restore`
+ignore_collect                               = ["device1"]                              # (Optional) 当前 item 不需要执行 `collect` 操作的设备
+ignore_restore                               = ["e48ff1f2-4d5e-4a9f-9c3d-66526565b4ae"] # (Optional) 当前 item 不需要执行 `restore` 操作的设备
 # (Optional) 为特定设备指定不同的本地路径。
 sources.device1                              = "D:/Program Files/gsb"
 sources.e48ff1f2-4d5e-4a9f-9c3d-66526565b4ae = "E:/Program Files/gsb"
-ignore_collect = ["device1"]                              # (Optional) 当前 item 不需要执行 `collect` 操作的设备
-ignore_restore = ["e48ff1f2-4d5e-4a9f-9c3d-66526565b4ae"] # (Optional) 当前 item 不需要执行 `restore` 操作的设备
 ```
 
 ## 安装与使用

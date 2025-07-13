@@ -20,31 +20,33 @@ The `gsb` configuration file is `.gsb.config.toml` located at the root of the re
 ### Example Configuration
 
 ```toml
-sync_interval = 3600    # GSB sync interval in seconds
-version       = "0.2.0" # GSB version
+sync_interval = 3600    # gsb sync interval in seconds
+version       = "0.2.1" # gsb version
 
-# (Optional) Git-related configurations
+# (Optional) Git-related configuration
 [git]
-branch = "main"   # Branch name used for gsb sync (Optional, default = "main")
-remote = "origin" # Remote repository name used for gsb sync (Optional, default = "origin")
+branch = "main"   # Branch name to use for gsb sync (Optional, default = "main")
+remote = "origin" # Remote repository name to use for gsb sync (Optional, default = "origin")
 
-# (Optional) Aliases for device IDs. Device IDs can be viewed via `gsb d` or `gsb device`.
+# (Optional) Aliases for device IDs. Device IDs can be viewed with `gsb d` or `gsb device`.
 [aliases]
 device1 = "d37ef0ee-3c3f-419a-8c32-66526565b4ae"
+device3 = "f4e5d1f2-4d5e-4a9f-9c3d-66526565b4ae"
 
-# Defines an item to be synced or backed up. Multiple `[[item]]` sections can be added.
+# Defines an item to be synchronized or backed up. Multiple `[[item]]` sections can exist.
 [[item]]
-path_in_repo   = "test"                 # Relative path of the item in the repository
 default_source = "C:/Program Files/gsb" # (Optional) Default path
-is_hardlink    = true                   # (Optional) If set to `true`, indicates files in the repository are hard-linked to the `path` location. These files won't be processed during `collect` and `restore`. Cannot be used for folders.
+is_hardlink    = true                   # (Optional) If set to `true`, the file in the repository is a hard link to the `path` location. These files will not be processed during `collect` and `restore`. Cannot be used for folders.
+path_in_repo   = "test"                 # Relative path of the item within the repository
 
 [[item]]
-path_in_repo   = "test2"                                  # Relative path of the item in the repository
-# (Optional) Specifies different local paths for specific devices.
+path_in_repo = "test2" # Relative path of the item within the repository
+ignore                                       = ["device3"]                              # (Optional) Equivalent to placing in both `ignore_collect` and `ignore_restore`
+ignore_collect                               = ["device1"]                              # (Optional) Devices where the current item should not perform a `collect` operation
+ignore_restore                               = ["e48ff1f2-4d5e-4a9f-9c3d-66526565b4ae"] # (Optional) Devices where the current item should not perform a `restore` operation
+# (Optional) Specify different local paths for specific devices.
 sources.device1                              = "D:/Program Files/gsb"
 sources.e48ff1f2-4d5e-4a9f-9c3d-66526565b4ae = "E:/Program Files/gsb"
-ignore_collect = ["device1"]                              # (Optional) Devices excluded from `collect` operation for this item
-ignore_restore = ["e48ff1f2-4d5e-4a9f-9c3d-66526565b4ae"] # (Optional) Devices excluded from `restore` operation for this item
 ```
 
 ## Installation and Usage

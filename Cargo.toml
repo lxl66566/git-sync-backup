@@ -1,40 +1,40 @@
 [package]
-authors     = ["lxl66566 <lxl66566@gmail.com>"]
+authors = ["lxl66566 <lxl66566@gmail.com>"]
 description = "Synchronize and backup files/folders using Git, cross-device & configurable."
-edition     = "2024"
-homepage    = "https://github.com/lxl66566/git-sync-backup.git"
-keywords    = ["git", "sync", "backup"]
-license     = "MIT"
-name        = "git-sync-backup"
-readme      = "README.md"
-repository  = "https://github.com/lxl66566/git-sync-backup.git"
-version     = "0.2.0"
+edition = "2024"
+homepage = "https://github.com/lxl66566/git-sync-backup.git"
+keywords = ["git", "sync", "backup"]
+license = "MIT"
+name = "git-sync-backup"
+readme = "README.md"
+repository = "https://github.com/lxl66566/git-sync-backup.git"
+version = "0.2.1"
 
 [dependencies]
-chrono            = "0.4.41"
-clap              = { version = "4.5", features = ["derive"] }
-config-file2      = "0.4.1"
-fuck-backslash    = "0.1.0"
-git2              = "0.20"
-home              = "0.5"
-log               = "0.4"
-machine-uid       = "0.5"
+chrono = "0.4.41"
+clap = { version = "4.5", features = ["derive"] }
+config-file2 = "0.4.1"
+fuck-backslash = "0.1.0"
+git2 = "0.20"
+home = "0.5"
+log = "0.4"
+machine-uid = "0.5"
 pretty_env_logger = "0.5"
-rayon             = "1.8"
-same-file         = "1.0.6"
-serde             = { version = "1.0", features = ["derive"] }
-thiserror         = "2.0"
+rayon = "1.8"
+same-file = "1.0.6"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"
 
 [dev-dependencies]
 tempfile = "3"
-toml     = "0"
+toml = "0"
 
 [[bin]]
 name = "gsb"
 path = "src/main.rs"
 
 [profile.release]
-lto       = true
+lto = true
 opt-level = "z"
-panic     = "abort"
-strip     = true
+panic = "abort"
+strip = true

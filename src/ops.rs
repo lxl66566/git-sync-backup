@@ -195,13 +195,12 @@ pub fn handle_collect(config: &Config, repo_root: &Path, autocommit: bool) -> Re
 
     // Use Rayon for parallel processing
     config.items.par_iter().try_for_each(|item| -> Result<()> {
-        // ignore_collect 内可以填写原始 device name 或其 alias，因此两种都要检查
-        let mut mapped = item
-            .ignore_collect
-            .iter()
+        let mut ignored_chain = item.ignore_collect.iter().chain(item.ignore.iter());
+        // ignore 内可以填写原始 device name 或其 alias，因此两种都要检查
+        let mut mapped = ignored_chain
+            .clone()
             .map(|x| get_actual_device_hash(x, &config.aliases));
-        if item.ignore_collect.iter().any(|x| x == &device_name) && mapped.any(|x| x == device_name)
-        {
+        if ignored_chain.any(|x| x == &device_name) && mapped.any(|x| x == device_name) {
             info!(
                 "Skip     collect for '{}' on this device: ignored.",
                 item.path_in_repo
@@ -243,13 +242,12 @@ pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
 
     // Use Rayon for parallel processing
     config.items.par_iter().try_for_each(|item| -> Result<()> {
-        // ignore_restore 内可以填写原始 device name 或其 alias，因此两种都要检查
-        let mut mapped = item
-            .ignore_restore
-            .iter()
+        let mut ignored_chain = item.ignore_restore.iter().chain(item.ignore.iter());
+        // ignore 内可以填写原始 device name 或其 alias，因此两种都要检查
+        let mut mapped = ignored_chain
+            .clone()
             .map(|x| get_actual_device_hash(x, &config.aliases));
-        if item.ignore_restore.iter().any(|x| x == &device_name) && mapped.any(|x| x == device_name)
-        {
+        if ignored_chain.any(|x| x == &device_name) && mapped.any(|x| x == device_name) {
             info!(
                 "Skip     restore for '{}' on this device: ignored.",
                 item.path_in_repo
@@ -342,7 +340,7 @@ mod tests {
         .unwrap();
 
         let config = Config {
-            version: "0.2.0".to_string(),
+            version: "0.2.1".to_string(),
             sync_interval: 3600,
             aliases: HashMap::from([(
                 "alias1".to_string(),
@@ -360,6 +358,7 @@ mod tests {
                     sources: None, // 使用 None 确保使用 default_source
                     ignore_collect: vec![],
                     ignore_restore: vec![],
+                    ignore: vec![],
                 },
                 Item {
                     path_in_repo: "dir1".to_string(),
@@ -368,6 +367,7 @@ mod tests {
                     sources: None,
                     ignore_collect: vec![],
                     ignore_restore: vec![],
+                    ignore: vec![],
                 },
                 Item {
                     path_in_repo: "hardlink_file.txt".to_string(),
@@ -376,6 +376,7 @@ mod tests {
                     sources: None,
                     ignore_collect: vec![],
                     ignore_restore: vec![],
+                    ignore: vec![],
                 },
                 Item {
                     path_in_repo: "ignored_file.txt".to_string(),
@@ -387,6 +388,7 @@ mod tests {
                     )])),
                     ignore_collect: vec![utils::get_current_device_name().unwrap()], /* 忽略当前设备的收集 */
                     ignore_restore: vec![],
+                    ignore: vec![],
                 },
             ],
         };
