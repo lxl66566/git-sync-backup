@@ -88,7 +88,7 @@ fn copy_item(from: &Path, to: &Path) -> Result<()> {
         for entry in fs::read_dir(from)? {
             let entry = entry?;
             let source_path = entry.path();
-            let dest_path = to.join(entry.file_name());
+            let dest_path = to.join(entry.file_name()).fuck_backslash();
             copy_item(&source_path, &dest_path)?; // 递归调用
         }
         return Ok(());
@@ -200,7 +200,7 @@ pub fn handle_collect(config: &Config, repo_root: &Path, autocommit: bool) -> Re
         let mut mapped = ignored_chain
             .clone()
             .map(|x| get_actual_device_hash(x, &config.aliases));
-        if ignored_chain.any(|x| x == &device_name) && mapped.any(|x| x == device_name) {
+        if ignored_chain.any(|x| x == &device_name) || mapped.any(|x| x == device_name) {
             info!(
                 "Skip     collect for '{}' on this device: ignored.",
                 item.path_in_repo
@@ -247,7 +247,7 @@ pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
         let mut mapped = ignored_chain
             .clone()
             .map(|x| get_actual_device_hash(x, &config.aliases));
-        if ignored_chain.any(|x| x == &device_name) && mapped.any(|x| x == device_name) {
+        if ignored_chain.any(|x| x == &device_name) || mapped.any(|x| x == device_name) {
             info!(
                 "Skip     restore for '{}' on this device: ignored.",
                 item.path_in_repo
