@@ -124,7 +124,7 @@ fn copy_item(from: &Path, to: &Path) -> Result<()> {
     }
 
     if should_copy {
-        debug!("Copying file: {from:?} -> {to:?}");
+        debug!("Copying  file: {from:?} -> {to:?}");
         fs::copy(from, to)?;
     } else {
         trace!("Skipping unchanged file: {from:?}");
@@ -174,7 +174,7 @@ fn copy_item_all(from: &Path, to: &Path, is_hardlink: bool) -> Result<()> {
     }
     if is_hardlink {
         if to.exists() && is_same_file(from, to)? {
-            info!("Skipping hardlink copy: {from:?} -> {to:?}");
+            warn!("Skipping hardlink copy: {from:?} -> {to:?}");
             return Ok(());
         } else {
             info!("Hardlink {from:?} -> {to:?}");
@@ -201,7 +201,7 @@ pub fn handle_collect(config: &Config, repo_root: &Path, autocommit: bool) -> Re
             .clone()
             .map(|x| get_actual_device_hash(x, &config.aliases));
         if ignored_chain.any(|x| x == &device_name) || mapped.any(|x| x == device_name) {
-            info!(
+            warn!(
                 "Skip     collect for '{}' on this device: ignored.",
                 item.path_in_repo
             );
@@ -248,14 +248,14 @@ pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
             .clone()
             .map(|x| get_actual_device_hash(x, &config.aliases));
         if ignored_chain.any(|x| x == &device_name) || mapped.any(|x| x == device_name) {
-            info!(
+            warn!(
                 "Skip     restore for '{}' on this device: ignored.",
                 item.path_in_repo
             );
             return Ok(());
         }
 
-        let source_path = repo_root.join(&item.path_in_repo);
+        let source_path = repo_root.join(&item.path_in_repo).fuck_backslash();
         let dest_path = item
             .get_source_for_device(&device_name, &config.aliases)
             .ok_or_else(|| {
@@ -263,14 +263,14 @@ pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
             })?;
 
         // Expand tilde in path
-        let dest_path = expand_tilde(dest_path);
+        let dest_path = expand_tilde(dest_path).fuck_backslash();
 
         copy_item_all(&source_path, &dest_path, item.is_hardlink)?;
 
         Ok(())
     })?;
 
-    info!("Restore process finished.");
+    info!("Restore  process finished.");
     Ok(())
 }
 
