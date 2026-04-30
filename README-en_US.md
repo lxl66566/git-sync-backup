@@ -6,15 +6,9 @@ English | [简体中文](./README.md)
 
 ## Installation
 
-Choose one of the following installation methods:
-
 - Install via [cargo-binstall](https://github.com/cargo-bins/cargo-binstall):
   ```bash
-  cargo binstall git-sync-backup
-  ```
-- Build from source:
-  ```bash
-  cargo install git-sync-backup
+  cargo binstall git-sync-backup --git https://github.com/lxl66566/git-sync-backup
   ```
 
 ## Usage

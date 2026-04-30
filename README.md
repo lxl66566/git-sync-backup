@@ -6,15 +6,9 @@
 
 ## 安装
 
-任选一种安装方式：
-
 - 通过 [cargo-binstall](https://github.com/cargo-bins/cargo-binstall) 安装：
   ```bash
-  cargo binstall git-sync-backup
-  ```
-- 从源码编译：
-  ```bash
-  cargo install git-sync-backup
+  cargo binstall git-sync-backup --git https://github.com/lxl66566/git-sync-backup
   ```
 
 ## 使用
