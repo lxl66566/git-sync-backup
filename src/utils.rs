@@ -55,3 +55,34 @@ pub fn expand_tilde(path: PathBuf) -> PathBuf {
     }
     path
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_expand_tilde() {
+        if let Some(home) = home_dir() {
+            let input = PathBuf::from("~/Documents");
+            let result = expand_tilde(input);
+            assert_eq!(result, home.join("Documents"));
+        }
+
+        // 不以 ~ 开头 -> 原样返回
+        let input = PathBuf::from("/absolute/path");
+        let result = expand_tilde(input);
+        assert_eq!(result, PathBuf::from("/absolute/path"));
+
+        let input = PathBuf::from("relative/path");
+        let result = expand_tilde(input);
+        assert_eq!(result, PathBuf::from("relative/path"));
+    }
+
+    #[test]
+    fn test_get_current_device_name() {
+        let result = get_current_device_name();
+        assert!(result.is_ok());
+        let name = result.unwrap();
+        assert!(!name.is_empty());
+    }
+}
