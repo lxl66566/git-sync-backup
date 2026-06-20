@@ -1,6 +1,7 @@
 //! 集成测试：模拟用户操作，验证 collect / restore 的端到端行为。
 //!
 //! 每个测试在独立的临时目录中运行，支持并行执行。
+#![allow(clippy::doc_markdown)]
 
 use std::{
     collections::HashMap,
@@ -10,7 +11,7 @@ use std::{
 };
 
 use git_sync_backup::{
-    config::{Config, GitConfig, Item},
+    config::{Config, GitConfig, Item, RestorePolicy},
     ops, utils,
 };
 
@@ -67,6 +68,8 @@ fn collect_file_from_default_source() {
             ignore_collect: vec![],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         }],
     };
 
@@ -104,6 +107,8 @@ fn collect_directory_recursively() {
             ignore_collect: vec![],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         }],
     };
 
@@ -139,6 +144,8 @@ fn collect_with_autocommit() {
             ignore_collect: vec![],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         }],
     };
 
@@ -185,6 +192,8 @@ fn collect_uses_alias_source_instead_of_default() {
             ignore_collect: vec![],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         }],
     };
 
@@ -224,6 +233,8 @@ fn collect_uses_hash_source_key() {
             ignore_collect: vec![],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         }],
     };
 
@@ -259,10 +270,12 @@ fn restore_file_to_default_source() {
             ignore_collect: vec![],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         }],
     };
 
-    ops::handle_restore(&config, repo_dir.path()).unwrap();
+    ops::handle_restore(&config, repo_dir.path(), true).unwrap();
 
     let restored = work_dir.path().join("file1.txt");
     assert!(restored.exists());
@@ -299,10 +312,12 @@ fn restore_uses_alias_source_instead_of_default() {
             ignore_collect: vec![],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         }],
     };
 
-    ops::handle_restore(&config, repo_dir.path()).unwrap();
+    ops::handle_restore(&config, repo_dir.path(), true).unwrap();
 
     assert!(alias_dir.path().join("data.txt").exists());
     assert_eq!(
@@ -337,6 +352,8 @@ fn collect_then_restore_roundtrip() {
             ignore_collect: vec![],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         }],
     };
 
@@ -351,7 +368,7 @@ fn collect_then_restore_roundtrip() {
     write_file(&work_dir.path().join("file1.txt"), b"modified!");
 
     // restore: repo -> work（恢复到仓库中的版本）
-    ops::handle_restore(&config, repo_dir.path()).unwrap();
+    ops::handle_restore(&config, repo_dir.path(), true).unwrap();
     assert_eq!(
         read_file(&work_dir.path().join("file1.txt")),
         "original content"
@@ -383,6 +400,8 @@ fn collect_skip_unchanged_files() {
             ignore_collect: vec![],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         }],
     };
 
@@ -432,6 +451,8 @@ fn collect_source_not_exist_skips_gracefully() {
             ignore_collect: vec![],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         }],
     };
 
@@ -469,6 +490,8 @@ fn collect_ignored_device_skips_item() {
             ignore_collect: vec![device_name],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         }],
     };
 
@@ -502,10 +525,12 @@ fn restore_ignored_device_skips_item() {
             ignore_collect: vec![],
             ignore_restore: vec![device_name],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         }],
     };
 
-    ops::handle_restore(&config, repo_dir.path()).unwrap();
+    ops::handle_restore(&config, repo_dir.path(), true).unwrap();
     assert!(!work_dir.path().join("file1.txt").exists());
 }
 
@@ -535,6 +560,8 @@ fn collect_ignored_by_alias() {
             ignore_collect: vec!["mywork".to_string()],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         }],
     };
 
@@ -568,6 +595,8 @@ fn collect_hardlink_file() {
             ignore_collect: vec![],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         }],
     };
 
@@ -606,8 +635,10 @@ fn collect_multiple_items() {
                 sources: None,
                 ignore_collect: vec![],
                 ignore_restore: vec![],
-                ignore: vec![],
-            },
+            ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
+        },
             Item {
                 path_in_repo: "b.txt".to_string(),
                 default_source: Some(work_dir.path().join("b.txt")),
@@ -615,8 +646,10 @@ fn collect_multiple_items() {
                 sources: None,
                 ignore_collect: vec![],
                 ignore_restore: vec![],
-                ignore: vec![],
-            },
+            ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
+        },
             Item {
                 path_in_repo: "subdir".to_string(),
                 default_source: Some(dir),
@@ -624,8 +657,10 @@ fn collect_multiple_items() {
                 sources: None,
                 ignore_collect: vec![],
                 ignore_restore: vec![],
-                ignore: vec![],
-            },
+            ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
+        },
         ],
     };
 
@@ -634,4 +669,207 @@ fn collect_multiple_items() {
     assert_eq!(read_file(&repo_dir.path().join("a.txt")), "file a");
     assert_eq!(read_file(&repo_dir.path().join("b.txt")), "file b");
     assert_eq!(read_file(&repo_dir.path().join("subdir/c.txt")), "file c");
+}
+
+/// 验证：restore = "off" 的 item 永远不会被 restore，即使仓库中有文件
+#[test]
+fn restore_policy_off_never_restores() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let work_dir = tempfile::tempdir().unwrap();
+    init_git_repo(repo_dir.path());
+
+    // 仓库中有文件
+    write_file(&repo_dir.path().join("backup_only.txt"), b"from repo");
+
+    let config = Config {
+        version: "0.3.0".to_string(),
+        sync_interval: 3600,
+        aliases: HashMap::new(),
+        git: GitConfig {
+            remote: None,
+            branch: None,
+        },
+        items: vec![Item {
+            path_in_repo: "backup_only.txt".to_string(),
+            default_source: Some(work_dir.path().join("backup_only.txt")),
+            is_hardlink: false,
+            sources: None,
+            ignore_collect: vec![],
+            ignore_restore: vec![],
+            ignore: vec![],
+            restore: RestorePolicy::Off,
+            restore_devices: vec![],
+        }],
+    };
+
+    ops::handle_restore(&config, repo_dir.path(), true).unwrap();
+
+    // 目标文件不应被创建
+    assert!(!work_dir.path().join("backup_only.txt").exists());
+}
+
+/// 验证：restore = "explicit" 仅白名单设备才 restore
+#[test]
+fn restore_policy_explicit_whitelist() {
+    let device_name = utils::get_current_device_name().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let work_dir = tempfile::tempdir().unwrap();
+    init_git_repo(repo_dir.path());
+
+    write_file(&repo_dir.path().join("work_docs.txt"), b"from repo");
+
+    let config = Config {
+        version: "0.3.0".to_string(),
+        sync_interval: 3600,
+        aliases: HashMap::new(),
+        git: GitConfig {
+            remote: None,
+            branch: None,
+        },
+        items: vec![Item {
+            path_in_repo: "work_docs.txt".to_string(),
+            default_source: Some(work_dir.path().join("work_docs.txt")),
+            is_hardlink: false,
+            sources: None,
+            ignore_collect: vec![],
+            ignore_restore: vec![],
+            ignore: vec![],
+            restore: RestorePolicy::Explicit,
+            restore_devices: vec![device_name],
+        }],
+    };
+
+    // 白名单包含当前设备 → 应该 restore
+    ops::handle_restore(&config, repo_dir.path(), true).unwrap();
+    assert!(work_dir.path().join("work_docs.txt").exists());
+    assert_eq!(
+        read_file(&work_dir.path().join("work_docs.txt")),
+        "from repo"
+    );
+}
+
+/// 验证：restore = "explicit" 时当前设备不在白名单 → 不 restore
+#[test]
+fn restore_policy_explicit_not_in_whitelist_skips() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let work_dir = tempfile::tempdir().unwrap();
+    init_git_repo(repo_dir.path());
+
+    write_file(&repo_dir.path().join("work_docs.txt"), b"from repo");
+
+    let config = Config {
+        version: "0.3.0".to_string(),
+        sync_interval: 3600,
+        aliases: HashMap::new(),
+        git: GitConfig {
+            remote: None,
+            branch: None,
+        },
+        items: vec![Item {
+            path_in_repo: "work_docs.txt".to_string(),
+            default_source: Some(work_dir.path().join("work_docs.txt")),
+            is_hardlink: false,
+            sources: None,
+            ignore_collect: vec![],
+            ignore_restore: vec![],
+            ignore: vec![],
+            restore: RestorePolicy::Explicit,
+            // 白名单为空 → 当前设备不在其中
+            restore_devices: vec!["some-other-device".to_string()],
+        }],
+    };
+
+    ops::handle_restore(&config, repo_dir.path(), true).unwrap();
+
+    // 当前设备不在白名单 → 不应被 restore
+    assert!(!work_dir.path().join("work_docs.txt").exists());
+}
+
+/// 验证：restore = "explicit" + 别名匹配白名单
+#[test]
+fn restore_policy_explicit_alias_in_whitelist() {
+    let device_name = utils::get_current_device_name().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let work_dir = tempfile::tempdir().unwrap();
+    init_git_repo(repo_dir.path());
+
+    write_file(&repo_dir.path().join("data.txt"), b"from repo");
+
+    let config = Config {
+        version: "0.3.0".to_string(),
+        sync_interval: 3600,
+        aliases: HashMap::from([("mywork".to_string(), device_name)]),
+        git: GitConfig {
+            remote: None,
+            branch: None,
+        },
+        items: vec![Item {
+            path_in_repo: "data.txt".to_string(),
+            default_source: Some(work_dir.path().join("data.txt")),
+            is_hardlink: false,
+            sources: None,
+            ignore_collect: vec![],
+            ignore_restore: vec![],
+            ignore: vec![],
+            restore: RestorePolicy::Explicit,
+            // 用别名而非原始 hash
+            restore_devices: vec!["mywork".to_string()],
+        }],
+    };
+
+    ops::handle_restore(&config, repo_dir.path(), true).unwrap();
+    assert!(work_dir.path().join("data.txt").exists());
+}
+
+/// 验证：collect + restore roundtrip 对 restore = "off" 的 item 仍然安全
+/// （collect 正常，restore 跳过，数据不会被覆盖）
+#[test]
+fn backup_only_item_collect_works_restore_skipped() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let work_dir = tempfile::tempdir().unwrap();
+    init_git_repo(repo_dir.path());
+
+    // 本地有重要数据
+    write_file(&work_dir.path().join("important.txt"), b"my important data");
+
+    let config = Config {
+        version: "0.3.0".to_string(),
+        sync_interval: 3600,
+        aliases: HashMap::new(),
+        git: GitConfig {
+            remote: None,
+            branch: None,
+        },
+        items: vec![Item {
+            path_in_repo: "important.txt".to_string(),
+            default_source: Some(work_dir.path().join("important.txt")),
+            is_hardlink: false,
+            sources: None,
+            ignore_collect: vec![],
+            ignore_restore: vec![],
+            ignore: vec![],
+            restore: RestorePolicy::Off,
+            restore_devices: vec![],
+        }],
+    };
+
+    // collect：本地 -> 仓库（正常工作）
+    ops::handle_collect(&config, repo_dir.path(), false).unwrap();
+    assert_eq!(
+        read_file(&repo_dir.path().join("important.txt")),
+        "my important data"
+    );
+
+    // 模拟：仓库中被其他设备修改
+    write_file(
+        &repo_dir.path().join("important.txt"),
+        b"overwritten by another device",
+    );
+
+    // restore：由于 restore = off，本地数据不会被覆盖
+    ops::handle_restore(&config, repo_dir.path(), true).unwrap();
+    assert_eq!(
+        read_file(&work_dir.path().join("important.txt")),
+        "my important data"
+    );
 }

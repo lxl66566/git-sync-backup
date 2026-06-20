@@ -8,6 +8,7 @@ license     = "MIT"
 name        = "git-sync-backup"
 readme      = "README.md"
 repository  = "https://github.com/lxl66566/git-sync-backup.git"
+rust-version = "1.85"
 version     = "0.3.0"
 
 [dependencies]
@@ -32,6 +33,13 @@ toml     = "1"
 [[bin]]
 name = "gsb"
 path = "src/main.rs"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all     = "warn"
+pedantic = "warn"
 
 [profile.release]
 lto       = true

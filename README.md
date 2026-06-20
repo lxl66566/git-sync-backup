@@ -54,8 +54,33 @@ path_in_repo = "test2" # 项目在仓库中的相对路径
 ignore                                       = ["device3"]                              # （Optional）等于同时放入 `ignore_collect` 和 `ignore_restore`
 ignore_collect                               = ["device1"]                              # （Optional）当前 item 不需要执行 `collect` 操作的设备
 ignore_restore                               = ["e48ff1f2-4d5e-4a9f-9c3d-66526565b4ae"] # （Optional）当前 item 不需要执行 `restore` 操作的设备
+restore                                      = "explicit"                               # （Optional）restore 策略：`all`（缺省）| `explicit`（仅白名单设备）| `off`（永不 restore）
+restore_devices                              = ["device1"]                              # （Optional，仅 `restore = "explicit"` 时生效）允许 restore 的设备列表
 # （Optional）为特定设备指定不同的本地路径。
 # 别名和原始设备 hash 均可作为 key 使用。
 sources.device1                              = "D:/Program Files/gsb"
 sources.e48ff1f2-4d5e-4a9f-9c3d-66526565b4ae = "E:/Program Files/gsb"
 ```
+
+### Restore 安全策略
+
+对于**永远只想备份、不想恢复**的重要数据，可以使用 `restore` 字段实现白名单语义，避免新增设备时忘记添加到 `ignore_restore` 列表导致数据被覆盖：
+
+| `restore` 值 | 行为 | 适用场景 |
+|---|---|---|
+| `all`（缺省） | 所有未被 `ignore_restore` 排除的设备都会 restore | 普通同步文件 |
+| `explicit` | 仅 `restore_devices` 列表中的设备才 restore | 受控同步：新设备默认安全 |
+| `off` | 任何设备都不 restore | 纯备份：重要数据单向保护 |
+
+```toml
+[[item]]
+path_in_repo = "important_data"
+restore = "off"           # 永远不 restore
+
+[[item]]
+path_in_repo = "work_docs"
+restore = "explicit"      # 白名单模式
+restore_devices = ["main", "work"]  # 仅这些设备会 restore
+```
+
+此外，`gsb r`（restore）默认会先打印 dry-run 摘要并列出将被覆盖的文件，等待用户确认。使用 `gsb r -y` / `gsb r --yes` 可跳过确认（适用于脚本或 `gsb sync` 后台模式）。

@@ -20,7 +20,14 @@ pub enum Commands {
 
     /// Restore all specified items from the git repository to local paths
     #[command(alias = "r")]
-    Restore,
+    Restore {
+        /// Skip the confirmation prompt (dry-run summary).
+        ///
+        /// 默认情况下 `gsb r` 会先打印将要 restore 的文件列表并等待用户确认。
+        /// 传入此选项可直接执行，适用于脚本或 `gsb sync` 后台模式。
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
 
     /// Run in background, continuously fetch and restore updates
     #[command(alias = "s")]

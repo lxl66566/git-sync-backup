@@ -1,6 +1,6 @@
 use std::{
     fs,
-    io::{self, BufReader, Read},
+    io::{self, BufReader, Read, Write},
     path::Path,
     thread,
     time::{Duration, UNIX_EPOCH},
@@ -176,11 +176,10 @@ fn copy_item_all(from: &Path, to: &Path, is_hardlink: bool) -> Result<()> {
         if to.exists() && is_same_file(from, to)? {
             warn!("Skipping hardlink copy: {from:?} -> {to:?}");
             return Ok(());
-        } else {
-            info!("Hardlink {from:?} -> {to:?}");
-            _ = fs::remove_file(to); // 尝试删除目标文件，忽略错误
-            fs::hard_link(from, to)?;
         }
+        info!("Hardlink {from:?} -> {to:?}");
+        _ = fs::remove_file(to); // 尝试删除目标文件，忽略错误
+        fs::hard_link(from, to)?;
     } else {
         copy_item(from, to)?;
     }
@@ -230,33 +229,78 @@ pub fn handle_collect(config: &Config, repo_root: &Path, autocommit: bool) -> Re
 }
 
 /// 处理 `restore` 命令
-pub fn handle_restore(config: &Config, repo_root: &Path) -> Result<()> {
+///
+/// `yes` 为 `true` 时跳过 dry-run 确认提示，直接执行 restore。适用于
+/// `gsb sync` 后台模式或 CI 脚本。
+pub fn handle_restore(config: &Config, repo_root: &Path, yes: bool) -> Result<()> {
     info!("Starting restore process...");
     let device_name = utils::get_current_device_name()?;
 
-    config.items.par_iter().try_for_each(|item| -> Result<()> {
-        if item.is_ignored_for_restore(&device_name, &config.aliases) {
-            warn!(
-                "Skip     restore for '{}' on this device: ignored.",
-                item.path_in_repo
-            );
+    // --- dry-run 摘要 ---
+    // 在真正写入之前，列出将要被 restore 的 item 及目标路径，
+    // 让用户有机会检查是否有意外覆盖。
+    let pending: Vec<(&crate::config::Item, std::path::PathBuf)> = config
+        .items
+        .iter()
+        .filter(|item| !item.is_ignored_for_restore(&device_name, &config.aliases))
+        .filter_map(|item| {
+            item.get_source_for_device(&device_name, &config.aliases)
+                .map(|p| (item, expand_tilde(p).fuck_backslash()))
+        })
+        .collect();
+
+    if pending.is_empty() {
+        info!("No items to restore on this device.");
+        return Ok(());
+    }
+
+    println!(
+        "The following {} item(s) will be restored on this device:",
+        pending.len()
+    );
+    for (item, dest) in &pending {
+        println!("  {}  ->  {}", item.path_in_repo, dest.display());
+    }
+
+    // 同时列出被跳过的 item（帮助用户发现配置遗漏）
+    let skipped: Vec<&crate::config::Item> = config
+        .items
+        .iter()
+        .filter(|item| item.is_ignored_for_restore(&device_name, &config.aliases))
+        .collect();
+    if !skipped.is_empty() {
+        println!("\nSkipped ({} item(s)):", skipped.len());
+        for item in &skipped {
+            let reason = match item.restore {
+                crate::config::RestorePolicy::Off => "restore = off".to_string(),
+                crate::config::RestorePolicy::Explicit => {
+                    "not in restore_devices".to_string()
+                }
+                crate::config::RestorePolicy::All => "ignored".to_string(),
+            };
+            println!("  {}  ({})", item.path_in_repo, reason);
+        }
+    }
+
+    if !yes {
+        print!("\nProceed? [y/N] ");
+        io::stdout().flush()?;
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        if !input.trim().eq_ignore_ascii_case("y") {
+            info!("Restore cancelled by user.");
             return Ok(());
         }
+    }
 
-        let source_path = repo_root.join(&item.path_in_repo).fuck_backslash();
-        let dest_path = item
-            .get_source_for_device(&device_name, &config.aliases)
-            .ok_or_else(|| {
-                GsbError::SourcePathNotFound(item.path_in_repo.clone(), device_name.clone())
-            })?;
-
-        // Expand tilde in path
-        let dest_path = expand_tilde(dest_path).fuck_backslash();
-
-        copy_item_all(&source_path, &dest_path, item.is_hardlink)?;
-
-        Ok(())
-    })?;
+    // --- 执行 restore ---
+    pending
+        .par_iter()
+        .try_for_each(|(item, dest_path)| -> Result<()> {
+            let source_path = repo_root.join(&item.path_in_repo).fuck_backslash();
+            copy_item_all(&source_path, dest_path, item.is_hardlink)?;
+            Ok(())
+        })?;
 
     info!("Restore  process finished.");
     Ok(())
@@ -277,9 +321,9 @@ pub fn handle_sync(config: &Config, repo_root: &Path) -> Result<()> {
             config.git.remote.as_deref().unwrap_or("origin"),
             config.git.branch.as_deref().unwrap_or("main"),
         ) {
-            Ok(_) => {
+            Ok(()) => {
                 info!("Pull successful, now restoring files...");
-                if let Err(e) = handle_restore(config, repo_root) {
+                if let Err(e) = handle_restore(config, repo_root, true) {
                     error!("Failed to restore after pull: {e}");
                 }
             }
@@ -347,6 +391,8 @@ mod tests {
                     ignore_collect: vec![],
                     ignore_restore: vec![],
                     ignore: vec![],
+                    restore: crate::config::RestorePolicy::All,
+                    restore_devices: vec![],
                 },
                 Item {
                     path_in_repo: "dir1".to_string(),
@@ -356,6 +402,8 @@ mod tests {
                     ignore_collect: vec![],
                     ignore_restore: vec![],
                     ignore: vec![],
+                    restore: crate::config::RestorePolicy::All,
+                    restore_devices: vec![],
                 },
                 Item {
                     path_in_repo: "hardlink_file.txt".to_string(),
@@ -365,6 +413,8 @@ mod tests {
                     ignore_collect: vec![],
                     ignore_restore: vec![],
                     ignore: vec![],
+                    restore: crate::config::RestorePolicy::All,
+                    restore_devices: vec![],
                 },
                 Item {
                     path_in_repo: "ignored_file.txt".to_string(),
@@ -377,6 +427,8 @@ mod tests {
                     ignore_collect: vec![utils::get_current_device_name().unwrap()], /* 忽略当前设备的收集 */
                     ignore_restore: vec![],
                     ignore: vec![],
+                    restore: crate::config::RestorePolicy::All,
+                    restore_devices: vec![],
                 },
             ],
         };
@@ -490,7 +542,7 @@ mod tests {
             .unwrap();
 
         // 运行 restore
-        handle_restore(&config, repo_root).unwrap();
+        handle_restore(&config, repo_root, true).unwrap();
 
         // 验证文件是否已恢复到工作目录
         let work_file1_path = work_root.join("file1.txt");

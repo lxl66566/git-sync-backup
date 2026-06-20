@@ -22,6 +22,24 @@ pub struct GitConfig {
     pub branch: Option<String>,
 }
 
+/// 单个 item 的 restore 策略。
+///
+/// 该枚举实现了「白名单优先」的安全语义：新增设备时，若用户未显式将该设备
+/// 加入允许列表，则默认不会执行 restore，避免意外覆盖本地数据。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RestorePolicy {
+    /// 所有未被 `ignore_restore` / `ignore` 排除的设备都会 restore（缺省值，
+    /// 向后兼容）。
+    #[default]
+    All,
+    /// 白名单模式：仅 `restore_devices` 中列出的设备才会 restore。
+    /// 新设备默认不 restore，必须显式配置才生效。
+    Explicit,
+    /// 任何设备都不 restore，纯备份用途。
+    Off,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Item {
     pub path_in_repo: String,
@@ -35,6 +53,12 @@ pub struct Item {
     pub ignore_restore: Vec<String>,
     #[serde(default)]
     pub ignore: Vec<String>,
+    /// Restore 策略，参见 [`RestorePolicy`]。
+    #[serde(default)]
+    pub restore: RestorePolicy,
+    /// 当 `restore = "explicit"` 时，允许 restore 的设备标识或别名列表。
+    #[serde(default)]
+    pub restore_devices: Vec<String>,
 }
 
 impl Item {
@@ -69,14 +93,31 @@ impl Item {
             || is_device_in_list(device_name, &self.ignore, aliases)
     }
 
-    /// 当前设备是否应忽略 restore 操作
+    /// 当前设备是否应忽略 restore 操作。
+    ///
+    /// 判定优先级（从高到低）：
+    /// 1. `ignore` / `ignore_restore` 黑名单 → 总是忽略
+    /// 2. [`RestorePolicy::Off`] → 总是忽略
+    /// 3. [`RestorePolicy::Explicit`] → 仅当设备不在 `restore_devices` 白名单
+    ///    中时忽略
+    /// 4. [`RestorePolicy::All`] → 不忽略
     pub fn is_ignored_for_restore(
         &self,
         device_name: &str,
         aliases: &HashMap<String, String>,
     ) -> bool {
-        is_device_in_list(device_name, &self.ignore_restore, aliases)
+        if is_device_in_list(device_name, &self.ignore_restore, aliases)
             || is_device_in_list(device_name, &self.ignore, aliases)
+        {
+            return true;
+        }
+        match self.restore {
+            RestorePolicy::All => false,
+            RestorePolicy::Off => true,
+            RestorePolicy::Explicit => {
+                !is_device_in_list(device_name, &self.restore_devices, aliases)
+            }
+        }
     }
 }
 
@@ -103,9 +144,7 @@ pub fn get_actual_device_hash(
 ) -> String {
     aliases
         .get(device_identifier)
-        .map_or(device_identifier.to_string(), |alias_hash| {
-            alias_hash.to_string()
-        })
+        .map_or_else(|| device_identifier.to_string(), String::clone)
 }
 
 #[cfg(test)]
@@ -169,6 +208,8 @@ mod tests {
             ignore_collect: vec![],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         };
 
         // 用原始 hash 查找，应该能通过别名解析到 sources 中的路径
@@ -200,6 +241,8 @@ mod tests {
             ignore_collect: vec![],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         };
 
         let result = item.get_source_for_device("hash-aaa", &aliases);
@@ -221,6 +264,8 @@ mod tests {
             ignore_collect: vec![],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         };
 
         let result = item.get_source_for_device("any-device", &aliases);
@@ -238,6 +283,8 @@ mod tests {
             ignore_collect: vec![],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         };
 
         let result = item.get_source_for_device("any-device", &aliases);
@@ -256,6 +303,8 @@ mod tests {
             ignore_collect: vec!["main".to_string()],
             ignore_restore: vec![],
             ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         };
 
         // 用原始 hash 检查，应该通过别名匹配
@@ -277,9 +326,117 @@ mod tests {
             ignore_collect: vec![],
             ignore_restore: vec![],
             ignore: vec!["device-x".to_string()],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
         };
 
         assert!(item.is_ignored_for_restore("device-x", &aliases));
         assert!(!item.is_ignored_for_restore("device-y", &aliases));
+    }
+
+    #[test]
+    fn test_restore_policy_off_skips_all_devices() {
+        let aliases = HashMap::new();
+        let item = Item {
+            path_in_repo: "backup_only".to_string(),
+            default_source: None,
+            is_hardlink: false,
+            sources: None,
+            ignore_collect: vec![],
+            ignore_restore: vec![],
+            ignore: vec![],
+            restore: RestorePolicy::Off,
+            restore_devices: vec![],
+        };
+
+        // 任何设备都被跳过
+        assert!(item.is_ignored_for_restore("device-a", &aliases));
+        assert!(item.is_ignored_for_restore("device-b", &aliases));
+    }
+
+    #[test]
+    fn test_restore_policy_explicit_whitelist() {
+        let aliases = HashMap::from([("main".to_string(), "hash-aaa".to_string())]);
+
+        let item = Item {
+            path_in_repo: "work_docs".to_string(),
+            default_source: None,
+            is_hardlink: false,
+            sources: None,
+            ignore_collect: vec![],
+            ignore_restore: vec![],
+            ignore: vec![],
+            restore: RestorePolicy::Explicit,
+            restore_devices: vec!["main".to_string()],
+        };
+
+        // 白名单内的设备（通过别名或 hash）可以 restore
+        assert!(!item.is_ignored_for_restore("main", &aliases));
+        assert!(!item.is_ignored_for_restore("hash-aaa", &aliases));
+        // 白名单外的设备被跳过 —— 这是「新增设备默认安全」的关键
+        assert!(item.is_ignored_for_restore("hash-bbb", &aliases));
+        assert!(item.is_ignored_for_restore("new-device", &aliases));
+    }
+
+    #[test]
+    fn test_restore_policy_all_default_behavior() {
+        let aliases = HashMap::new();
+        let item = Item {
+            path_in_repo: "shared".to_string(),
+            default_source: None,
+            is_hardlink: false,
+            sources: None,
+            ignore_collect: vec![],
+            ignore_restore: vec![],
+            ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
+        };
+
+        // 缺省策略：所有设备都 restore
+        assert!(!item.is_ignored_for_restore("any-device", &aliases));
+    }
+
+    #[test]
+    fn test_restore_ignore_blacklist_overrides_policy() {
+        // ignore_restore 黑名单优先级高于 restore 策略
+        let aliases = HashMap::new();
+        let item = Item {
+            path_in_repo: "test".to_string(),
+            default_source: None,
+            is_hardlink: false,
+            sources: None,
+            ignore_collect: vec![],
+            ignore_restore: vec!["banned".to_string()],
+            ignore: vec![],
+            restore: RestorePolicy::All,
+            restore_devices: vec![],
+        };
+
+        assert!(item.is_ignored_for_restore("banned", &aliases));
+    }
+
+    #[test]
+    fn test_deserialize_restore_policy() {
+        let toml_str = r#"
+            version = "0.3.0"
+            [[item]]
+            path_in_repo = "a"
+            restore = "off"
+
+            [[item]]
+            path_in_repo = "b"
+            restore = "explicit"
+            restore_devices = ["main"]
+
+            [[item]]
+            path_in_repo = "c"
+        "#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.items[0].restore, RestorePolicy::Off);
+        assert_eq!(config.items[1].restore, RestorePolicy::Explicit);
+        assert_eq!(config.items[1].restore_devices, vec!["main".to_string()]);
+        // 缺省 = All
+        assert_eq!(config.items[2].restore, RestorePolicy::All);
     }
 }

@@ -1,3 +1,5 @@
+#![allow(clippy::unnecessary_debug_formatting)]
+
 use clap::Parser;
 use config_file2::LoadConfigFile;
 use fuck_backslash::FuckBackslash;
@@ -46,13 +48,15 @@ fn run() -> Result<()> {
         Commands::Collect { autocommit } => {
             git_sync_backup::ops::handle_collect(&config, &repo_root, autocommit)?;
         }
-        Commands::Restore => {
-            git_sync_backup::ops::handle_restore(&config, &repo_root)?;
+        Commands::Restore { yes } => {
+            git_sync_backup::ops::handle_restore(&config, &repo_root, yes)?;
         }
         Commands::Sync => {
             git_sync_backup::ops::handle_sync(&config, &repo_root)?;
         }
-        _ => unreachable!("handled above"),
+        Commands::Device => {
+            unreachable!("handled above");
+        }
     }
 
     Ok(())
