@@ -11,20 +11,27 @@ repository  = "https://github.com/lxl66566/git-sync-backup.git"
 rust-version = "1.85"
 version     = "0.3.0"
 
+[features]
+default = ["encrypt"]
+## 启用内置加密支持（基于 git-simple-encrypt）。
+## collect 时自动加密、restore 时自动解密，密文始终存储在仓库中。
+encrypt = ["dep:git-simple-encrypt"]
+
 [dependencies]
-chrono            = "0.4.44"
-clap              = { version = "4.6", features = ["derive"] }
-config-file2      = "0.5.0"
-fuck-backslash    = "0.1.0"
-git2              = "0.21"
-home              = "0.5"
-log               = "0.4"
-machine-uid       = "0.6"
-pretty_env_logger = "0.5"
-rayon             = "1.11"
-same-file         = "1.0.6"
-serde             = { version = "1.0", features = ["derive"] }
-thiserror         = "2.0"
+chrono              = "0.4.44"
+clap                = { version = "4.6", features = ["derive"] }
+config-file2        = "0.5.0"
+fuck-backslash      = "0.1.0"
+git-simple-encrypt  = { path = "../git-simple-encrypt", default-features = false, optional = true }
+git2                = "0.21"
+home                = "0.5"
+log                 = "0.4"
+machine-uid         = "0.6"
+pretty_env_logger   = "0.5"
+rayon               = "1.11"
+same-file           = "1.0.6"
+serde               = { version = "1.0", features = ["derive"] }
+thiserror           = "2.0"
 
 [dev-dependencies]
 tempfile = "3"

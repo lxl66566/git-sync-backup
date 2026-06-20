@@ -192,6 +192,18 @@ pub fn handle_collect(config: &Config, repo_root: &Path, autocommit: bool) -> Re
     let device_name = utils::get_current_device_name()?;
     let repo = GsbRepo::open(repo_root)?;
 
+    // 收集本次活跃的 path_in_repo（用于构建加密计划）
+    let active_paths: Vec<&str> = config
+        .items
+        .iter()
+        .filter(|item| !item.is_ignored_for_collect(&device_name, &config.aliases))
+        .map(|item| item.path_in_repo.as_str())
+        .collect();
+
+    // 构建加密计划（若 git_simple_encrypt.toml 存在且密钥已配置）
+    #[cfg(feature = "encrypt")]
+    let crypt_plan = CryptPlan::build(repo_root, &active_paths)?;
+
     config.items.par_iter().try_for_each(|item| -> Result<()> {
         if item.is_ignored_for_collect(&device_name, &config.aliases) {
             warn!(
@@ -215,6 +227,13 @@ pub fn handle_collect(config: &Config, repo_root: &Path, autocommit: bool) -> Re
 
         Ok(())
     })?;
+
+    // 加密仓库中匹配的文件（原地加密，幂等）
+    #[cfg(feature = "encrypt")]
+    if let Some(plan) = &crypt_plan {
+        info!("Encrypting collected files...");
+        plan.encrypt()?;
+    }
 
     info!("Collection process finished.");
     if autocommit {
@@ -293,7 +312,19 @@ pub fn handle_restore(config: &Config, repo_root: &Path, yes: bool) -> Result<()
         }
     }
 
-    // --- 执行 restore ---
+    // 构建加密计划（restore 流程：decrypt → copy → re-encrypt）
+    let active_paths: Vec<&str> = pending.iter().map(|(item, _)| item.path_in_repo.as_str()).collect();
+    #[cfg(feature = "encrypt")]
+    let crypt_plan = CryptPlan::build(repo_root, &active_paths)?;
+
+    // Step 1: 解密仓库中匹配的文件（原地解密为明文，供 copy_item_all 读取）
+    #[cfg(feature = "encrypt")]
+    if let Some(plan) = &crypt_plan {
+        info!("Decrypting repo files for restore...");
+        plan.decrypt()?;
+    }
+
+    // Step 2: 拷贝明文到目标路径
     pending
         .par_iter()
         .try_for_each(|(item, dest_path)| -> Result<()> {
@@ -301,6 +332,14 @@ pub fn handle_restore(config: &Config, repo_root: &Path, yes: bool) -> Result<()
             copy_item_all(&source_path, dest_path, item.is_hardlink)?;
             Ok(())
         })?;
+
+    // Step 3: 重新加密仓库文件（恢复密文状态）。
+    // salt+file_id 缓存保证密文与解密前 byte-identical，git 不会看到变更。
+    #[cfg(feature = "encrypt")]
+    if let Some(plan) = crypt_plan {
+        info!("Re-encrypting repo files...");
+        plan.encrypt()?;
+    }
 
     info!("Restore  process finished.");
     Ok(())
@@ -336,6 +375,138 @@ pub fn handle_sync(config: &Config, repo_root: &Path) -> Result<()> {
         thread::sleep(sleep_duration);
     }
 }
+
+// =========================================================================
+// 加密支持（feature = "encrypt"）
+// =========================================================================
+// 当启用 encrypt feature 时，collect 完成后自动加密仓库中的文件，
+// restore 开始前自动解密、完成后重新加密，保证仓库始终存储密文。
+// 加密列表复用 git_simple_encrypt.toml 中的 crypt_list，与 git-se CLI
+// 完全兼容。仅处理同时在 gsb items 和 crypt_list 中的 path_in_repo。
+
+#[cfg(feature = "encrypt")]
+mod crypt_plan {
+    use std::path::{Path, PathBuf};
+
+    use git_simple_encrypt::{crypt, repo::Repo};
+
+    use crate::error::Result;
+
+    /// 一次 collect/restore 的加解密计划。
+    ///
+    /// 持有 git-simple-encrypt 的 [`Repo`] 句柄和本次需要处理的仓库相对
+    /// 路径列表（已与 `crypt_list` 取交集）。
+    pub struct CryptPlan {
+        repo: Repo,
+        paths: Vec<PathBuf>,
+    }
+
+    impl CryptPlan {
+        /// 根据本次活跃的 `path_in_repo` 列表构建加解密计划。
+        ///
+        /// 返回 `Ok(None)` 的情况（自动跳过加解密）：
+        /// - `git_simple_encrypt.toml` 不存在或 `crypt_list` 为空
+        /// - 密钥未配置（warning 提示用户运行 `git-se p`）
+        /// - 活跃路径中没有与 `crypt_list` 匹配的项
+        pub fn build(repo_root: &Path, active_paths: &[&str]) -> Result<Option<Self>> {
+            let gse_repo = match Repo::open(repo_root) {
+                Ok(r) => r,
+                Err(e) => {
+                    // 配置文件解析错误才报错，文件不存在时 crypt_list 为空
+                    log::debug!("git-simple-encrypt repo open failed: {e}");
+                    return Ok(None);
+                }
+            };
+
+            if gse_repo.conf.crypt_list.is_empty() {
+                return Ok(None);
+            }
+
+            // 预检查密钥 —— 缺失则 warn 并跳过，不中断主流程
+            if gse_repo.get_key().is_err() {
+                log::warn!(
+                    "Encryption key not found in git config. \
+                     Run `git-se p` to set it, or remove entries from crypt_list. \
+                     Skipping encryption."
+                );
+                return Ok(None);
+            }
+
+            // 取交集：active_paths ∩ crypt_list
+            let paths: Vec<PathBuf> = active_paths
+                .iter()
+                .filter(|p| path_matches_crypt_list(p, &gse_repo.conf.crypt_list))
+                .map(PathBuf::from)
+                .collect();
+
+            if paths.is_empty() {
+                return Ok(None);
+            }
+
+            log::info!("{} item(s) will be encrypted/decrypted.", paths.len());
+            Ok(Some(Self { repo: gse_repo, paths }))
+        }
+
+        /// 加密仓库中的文件（原地，幂等）。
+        pub fn encrypt(&self) -> Result<()> {
+            crypt::encrypt_repo(&self.repo, &self.paths)?;
+            Ok(())
+        }
+
+        /// 解密仓库中的文件（原地）。配合 [`encrypt`](Self::encrypt) 使用可
+        /// 实现 decrypt → copy → re-encrypt 的 restore 流程，保证仓库始终
+        /// 存储密文且密文确定性不变。
+        pub fn decrypt(&self) -> Result<()> {
+            crypt::decrypt_repo(&self.repo, &self.paths)?;
+            Ok(())
+        }
+    }
+
+    /// 检查 `path_in_repo` 是否匹配 `crypt_list`。
+    ///
+    /// 支持精确匹配和目录前缀匹配（正斜杠 / 反斜杠）。
+    fn path_matches_crypt_list(path_in_repo: &str, crypt_list: &[String]) -> bool {
+        crypt_list.iter().any(|c| {
+            c == path_in_repo
+                || path_in_repo.starts_with(&format!("{c}/"))
+                || path_in_repo.starts_with(&format!("{c}\\"))
+        })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_path_matches_exact() {
+            assert!(path_matches_crypt_list("secrets", &["secrets".to_string()]));
+            assert!(path_matches_crypt_list(
+                "secrets/file.txt",
+                &["secrets".to_string()]
+            ));
+            assert!(!path_matches_crypt_list(
+                "secrets2",
+                &["secrets".to_string()]
+            ));
+        }
+
+        #[test]
+        fn test_path_matches_backslash() {
+            assert!(path_matches_crypt_list(
+                "secrets\\file.txt",
+                &["secrets".to_string()]
+            ));
+        }
+
+        #[test]
+        fn test_path_matches_empty_list() {
+            assert!(!path_matches_crypt_list("secrets", &[]));
+        }
+    }
+}
+
+#[cfg(feature = "encrypt")]
+pub use crypt_plan::CryptPlan;
 
 #[cfg(test)]
 mod tests {

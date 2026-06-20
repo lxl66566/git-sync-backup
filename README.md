@@ -84,3 +84,30 @@ restore_devices = ["main", "work"]  # 仅这些设备会 restore
 ```
 
 此外，`gsb r`（restore）默认会先打印 dry-run 摘要并列出将被覆盖的文件，等待用户确认。使用 `gsb r -y` / `gsb r --yes` 可跳过确认（适用于脚本或 `gsb sync` 后台模式）。
+
+## 内置加密（可选）
+
+gsb 内置了基于 [git-simple-encrypt](https://github.com/lxl66566/git-simple-encrypt) 的透明加密支持。启用后：
+
+- **collect** 时自动加密仓库中的文件（仓库始终存储密文）
+- **restore** 时自动解密 → 拷贝到本地 → 重新加密（本地始终是明文，仓库始终是密文）
+- 加密列表复用 `git_simple_encrypt.toml` 中的 `crypt_list`，与 `git-se` CLI 完全兼容
+- 仅对**同时在 gsb items 和 `crypt_list` 中**的文件/文件夹执行加解密
+
+### 快速开始
+
+1. 在仓库根目录创建 `git_simple_encrypt.toml`：
+   ```toml
+   use_zstd = true
+   zstd_level = 15
+   crypt_list = ["secrets", "sensitive_config.txt"]
+   ```
+2. 设置加密主钥（会写入 git config）：
+   ```sh
+   git config --local git-simple-encrypt.key "your_password"
+   # 或使用 git-se CLI：
+   git-se p
+   ```
+3. 正常使用 `gsb c` / `gsb r`，加密/解密自动完成。
+
+> **注意**：如果密钥未配置，gsb 会跳过加解密并输出 warning，不影响 collect/restore 的正常执行。

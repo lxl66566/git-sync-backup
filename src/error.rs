@@ -22,6 +22,10 @@ pub enum GsbError {
 
     #[error("Source path not found for item '{0}' on device '{1}'.")]
     SourcePathNotFound(String, String),
+
+    #[cfg(feature = "encrypt")]
+    #[error("Encryption error: {0}")]
+    Encrypt(#[from] git_simple_encrypt::Error),
 }
 
 pub type Result<T> = std::result::Result<T, GsbError>;

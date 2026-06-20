@@ -873,3 +873,303 @@ fn backup_only_item_collect_works_restore_skipped() {
         "my important data"
     );
 }
+
+// =========================================================================
+// 加密集成测试（feature = "encrypt"）
+// =========================================================================
+
+#[cfg(feature = "encrypt")]
+mod encrypt_tests {
+    use super::*;
+
+    /// GITSE 加密文件的 magic bytes
+    const GITSE_MAGIC: &[u8] = b"GITSE";
+
+    /// 判断文件是否已被 git-simple-encrypt 加密（检查 GITSE magic header）
+    fn is_encrypted(path: &Path) -> bool {
+        if let Ok(content) = fs::read(path) {
+            content.len() >= 64 && &content[..5] == GITSE_MAGIC
+        } else {
+            false
+        }
+    }
+
+    /// 在仓库中创建 git_simple_encrypt.toml 配置文件
+    fn write_gse_config(repo_root: &Path, crypt_list: &[&str]) {
+        let list_entries: Vec<String> = crypt_list.iter().map(|s| format!("\"{s}\"")).collect();
+        let toml_content = format!(
+            "use_zstd = false\nzstd_level = 0\ncrypt_list = [{}]\n",
+            list_entries.join(", ")
+        );
+        write_file(&repo_root.join("git_simple_encrypt.toml"), toml_content.as_bytes());
+    }
+
+    /// 设置 git-simple-encrypt 的主密钥（通过 git config）
+    fn set_encrypt_key(repo_root: &Path, key: &str) {
+        let repo = git2::Repository::open(repo_root).unwrap();
+        repo.config()
+            .unwrap()
+            .set_str("git-simple-encrypt.key", key)
+            .unwrap();
+    }
+
+    /// 验证：collect 后仓库中的加密列表文件确实被加密
+    #[test]
+    fn collect_encrypts_files_in_crypt_list() {
+        let repo_dir = tempfile::tempdir().unwrap();
+        let work_dir = tempfile::tempdir().unwrap();
+        init_git_repo(repo_dir.path());
+
+        write_gse_config(repo_dir.path(), &["secret.txt"]);
+        set_encrypt_key(repo_dir.path(), "test_password");
+
+        write_file(&work_dir.path().join("secret.txt"), b"top secret data");
+
+        let config = Config {
+            version: "0.3.0".to_string(),
+            sync_interval: 3600,
+            aliases: HashMap::new(),
+            git: GitConfig {
+                remote: None,
+                branch: None,
+            },
+            items: vec![Item {
+                path_in_repo: "secret.txt".to_string(),
+                default_source: Some(work_dir.path().join("secret.txt")),
+                is_hardlink: false,
+                sources: None,
+                ignore_collect: vec![],
+                ignore_restore: vec![],
+                ignore: vec![],
+                restore: RestorePolicy::All,
+                restore_devices: vec![],
+            }],
+        };
+
+        ops::handle_collect(&config, repo_dir.path(), false).unwrap();
+
+        // 仓库中的文件应该是加密的
+        let repo_file = repo_dir.path().join("secret.txt");
+        assert!(repo_file.exists());
+        assert!(is_encrypted(&repo_file), "File should be encrypted in repo");
+        // 确保内容不是明文（用字节比较，密文可能不是有效 UTF-8）
+        assert_ne!(fs::read(&repo_file).unwrap(), b"top secret data");
+    }
+
+    /// 验证：不在 crypt_list 中的文件不会被加密
+    #[test]
+    fn collect_does_not_encrypt_files_not_in_crypt_list() {
+        let repo_dir = tempfile::tempdir().unwrap();
+        let work_dir = tempfile::tempdir().unwrap();
+        init_git_repo(repo_dir.path());
+
+        // crypt_list 只包含 secret.txt，不包含 plain.txt
+        write_gse_config(repo_dir.path(), &["secret.txt"]);
+        set_encrypt_key(repo_dir.path(), "test_password");
+
+        write_file(&work_dir.path().join("plain.txt"), b"plain content");
+        write_file(&work_dir.path().join("secret.txt"), b"secret content");
+
+        let config = Config {
+            version: "0.3.0".to_string(),
+            sync_interval: 3600,
+            aliases: HashMap::new(),
+            git: GitConfig {
+                remote: None,
+                branch: None,
+            },
+            items: vec![
+                Item {
+                    path_in_repo: "plain.txt".to_string(),
+                    default_source: Some(work_dir.path().join("plain.txt")),
+                    is_hardlink: false,
+                    sources: None,
+                    ignore_collect: vec![],
+                    ignore_restore: vec![],
+                    ignore: vec![],
+                    restore: RestorePolicy::All,
+                    restore_devices: vec![],
+                },
+                Item {
+                    path_in_repo: "secret.txt".to_string(),
+                    default_source: Some(work_dir.path().join("secret.txt")),
+                    is_hardlink: false,
+                    sources: None,
+                    ignore_collect: vec![],
+                    ignore_restore: vec![],
+                    ignore: vec![],
+                    restore: RestorePolicy::All,
+                    restore_devices: vec![],
+                },
+            ],
+        };
+
+        ops::handle_collect(&config, repo_dir.path(), false).unwrap();
+
+        // plain.txt 应该是明文
+        let plain_file = repo_dir.path().join("plain.txt");
+        assert!(!is_encrypted(&plain_file));
+        assert_eq!(read_file(&plain_file), "plain content");
+
+        // secret.txt 应该是密文
+        let secret_file = repo_dir.path().join("secret.txt");
+        assert!(is_encrypted(&secret_file));
+    }
+
+    /// 验证：collect → restore roundtrip，目标文件是明文
+    #[test]
+    fn collect_then_restore_decrypts_to_plaintext() {
+        let repo_dir = tempfile::tempdir().unwrap();
+        let work_dir = tempfile::tempdir().unwrap();
+        init_git_repo(repo_dir.path());
+
+        write_gse_config(repo_dir.path(), &["secret.txt"]);
+        set_encrypt_key(repo_dir.path(), "roundtrip_password");
+
+        write_file(&work_dir.path().join("secret.txt"), b"original secret");
+
+        let config = Config {
+            version: "0.3.0".to_string(),
+            sync_interval: 3600,
+            aliases: HashMap::new(),
+            git: GitConfig {
+                remote: None,
+                branch: None,
+            },
+            items: vec![Item {
+                path_in_repo: "secret.txt".to_string(),
+                default_source: Some(work_dir.path().join("secret.txt")),
+                is_hardlink: false,
+                sources: None,
+                ignore_collect: vec![],
+                ignore_restore: vec![],
+                ignore: vec![],
+                restore: RestorePolicy::All,
+                restore_devices: vec![],
+            }],
+        };
+
+        // collect: work -> repo (加密)
+        ops::handle_collect(&config, repo_dir.path(), false).unwrap();
+        assert!(is_encrypted(&repo_dir.path().join("secret.txt")));
+
+        // 删除本地文件，模拟需要 restore 的场景
+        fs::remove_file(work_dir.path().join("secret.txt")).unwrap();
+
+        // restore: repo (解密) -> work
+        ops::handle_restore(&config, repo_dir.path(), true).unwrap();
+
+        // 目标文件应该是明文，内容正确
+        let restored = work_dir.path().join("secret.txt");
+        assert!(restored.exists());
+        assert!(!is_encrypted(&restored));
+        assert_eq!(read_file(&restored), "original secret");
+
+        // restore 后仓库文件应该恢复为密文状态
+        assert!(
+            is_encrypted(&repo_dir.path().join("secret.txt")),
+            "Repo file should be re-encrypted after restore"
+        );
+    }
+
+    /// 验证：无 git_simple_encrypt.toml 时不执行加解密
+    #[test]
+    fn no_gse_config_skips_encryption() {
+        let repo_dir = tempfile::tempdir().unwrap();
+        let work_dir = tempfile::tempdir().unwrap();
+        init_git_repo(repo_dir.path());
+
+        // 不创建 git_simple_encrypt.toml
+        write_file(&work_dir.path().join("plain.txt"), b"no encryption here");
+
+        let config = Config {
+            version: "0.3.0".to_string(),
+            sync_interval: 3600,
+            aliases: HashMap::new(),
+            git: GitConfig {
+                remote: None,
+                branch: None,
+            },
+            items: vec![Item {
+                path_in_repo: "plain.txt".to_string(),
+                default_source: Some(work_dir.path().join("plain.txt")),
+                is_hardlink: false,
+                sources: None,
+                ignore_collect: vec![],
+                ignore_restore: vec![],
+                ignore: vec![],
+                restore: RestorePolicy::All,
+                restore_devices: vec![],
+            }],
+        };
+
+        ops::handle_collect(&config, repo_dir.path(), false).unwrap();
+
+        // 文件应该是明文
+        assert!(!is_encrypted(&repo_dir.path().join("plain.txt")));
+        assert_eq!(
+            read_file(&repo_dir.path().join("plain.txt")),
+            "no encryption here"
+        );
+    }
+
+    /// 验证：目录加解密 roundtrip
+    #[test]
+    fn encrypt_decrypt_directory_roundtrip() {
+        let repo_dir = tempfile::tempdir().unwrap();
+        let work_dir = tempfile::tempdir().unwrap();
+        init_git_repo(repo_dir.path());
+
+        // crypt_list 包含整个目录
+        write_gse_config(repo_dir.path(), &["secrets"]);
+        set_encrypt_key(repo_dir.path(), "dir_password");
+
+        // 创建多文件目录
+        write_file(&work_dir.path().join("secrets/a.txt"), b"secret A");
+        write_file(&work_dir.path().join("secrets/sub/b.txt"), b"secret B");
+
+        let config = Config {
+            version: "0.3.0".to_string(),
+            sync_interval: 3600,
+            aliases: HashMap::new(),
+            git: GitConfig {
+                remote: None,
+                branch: None,
+            },
+            items: vec![Item {
+                path_in_repo: "secrets".to_string(),
+                default_source: Some(work_dir.path().join("secrets")),
+                is_hardlink: false,
+                sources: None,
+                ignore_collect: vec![],
+                ignore_restore: vec![],
+                ignore: vec![],
+                restore: RestorePolicy::All,
+                restore_devices: vec![],
+            }],
+        };
+
+        // collect
+        ops::handle_collect(&config, repo_dir.path(), false).unwrap();
+
+        // 仓库中的文件应该是加密的
+        assert!(is_encrypted(&repo_dir.path().join("secrets/a.txt")));
+        assert!(is_encrypted(&repo_dir.path().join("secrets/sub/b.txt")));
+
+        // restore
+        ops::handle_restore(&config, repo_dir.path(), true).unwrap();
+
+        // 目标文件应该是明文
+        assert_eq!(
+            read_file(&work_dir.path().join("secrets/a.txt")),
+            "secret A"
+        );
+        assert_eq!(
+            read_file(&work_dir.path().join("secrets/sub/b.txt")),
+            "secret B"
+        );
+
+        // 仓库文件应该恢复为密文
+        assert!(is_encrypted(&repo_dir.path().join("secrets/a.txt")));
+    }
+}
