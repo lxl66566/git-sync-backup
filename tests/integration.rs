@@ -635,10 +635,10 @@ fn collect_multiple_items() {
                 sources: None,
                 ignore_collect: vec![],
                 ignore_restore: vec![],
-            ignore: vec![],
-            restore: RestorePolicy::All,
-            restore_devices: vec![],
-        },
+                ignore: vec![],
+                restore: RestorePolicy::All,
+                restore_devices: vec![],
+            },
             Item {
                 path_in_repo: "b.txt".to_string(),
                 default_source: Some(work_dir.path().join("b.txt")),
@@ -646,10 +646,10 @@ fn collect_multiple_items() {
                 sources: None,
                 ignore_collect: vec![],
                 ignore_restore: vec![],
-            ignore: vec![],
-            restore: RestorePolicy::All,
-            restore_devices: vec![],
-        },
+                ignore: vec![],
+                restore: RestorePolicy::All,
+                restore_devices: vec![],
+            },
             Item {
                 path_in_repo: "subdir".to_string(),
                 default_source: Some(dir),
@@ -657,10 +657,10 @@ fn collect_multiple_items() {
                 sources: None,
                 ignore_collect: vec![],
                 ignore_restore: vec![],
-            ignore: vec![],
-            restore: RestorePolicy::All,
-            restore_devices: vec![],
-        },
+                ignore: vec![],
+                restore: RestorePolicy::All,
+                restore_devices: vec![],
+            },
         ],
     };
 
@@ -901,7 +901,10 @@ mod encrypt_tests {
             "use_zstd = false\nzstd_level = 0\ncrypt_list = [{}]\n",
             list_entries.join(", ")
         );
-        write_file(&repo_root.join("git_simple_encrypt.toml"), toml_content.as_bytes());
+        write_file(
+            &repo_root.join("git_simple_encrypt.toml"),
+            toml_content.as_bytes(),
+        );
     }
 
     /// 设置 git-simple-encrypt 的主密钥（通过 git config）
