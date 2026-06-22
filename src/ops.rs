@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     io::{self, BufReader, Read, Write},
     path::Path,
@@ -84,12 +85,29 @@ fn copy_item(from: &Path, to: &Path) -> Result<()> {
             fs::create_dir(to)?;
         }
 
-        // 递归拷贝目录内容
+        // 递归拷贝目录内容，同时收集源文件名用于后续删除
+        let mut src_names = HashSet::new();
         for entry in fs::read_dir(from)? {
             let entry = entry?;
-            let source_path = entry.path();
-            let dest_path = to.join(entry.file_name()).fuck_backslash();
-            copy_item(&source_path, &dest_path)?; // 递归调用
+            let file_name = entry.file_name();
+            src_names.insert(file_name.clone());
+            let dest_path = to.join(&file_name).fuck_backslash();
+            copy_item(&entry.path(), &dest_path)?; // 递归调用
+        }
+
+        // 删除目标目录中源已不存在的文件/目录（用 HashSet 避免逐文件 syscall）
+        for entry in fs::read_dir(to)? {
+            let entry = entry?;
+            let file_name = entry.file_name();
+            if !src_names.contains(&file_name) {
+                let dest_path = entry.path();
+                if dest_path.is_dir() {
+                    fs::remove_dir_all(&dest_path)?;
+                } else {
+                    fs::remove_file(&dest_path)?;
+                }
+                debug!("Removed {dest_path:?} (no longer exists in source)");
+            }
         }
         return Ok(());
     }
@@ -292,9 +310,7 @@ pub fn handle_restore(config: &Config, repo_root: &Path, yes: bool) -> Result<()
         for item in &skipped {
             let reason = match item.restore {
                 crate::config::RestorePolicy::Off => "restore = off".to_string(),
-                crate::config::RestorePolicy::Explicit => {
-                    "not in restore_devices".to_string()
-                }
+                crate::config::RestorePolicy::Explicit => "not in restore_devices".to_string(),
                 crate::config::RestorePolicy::All => "ignored".to_string(),
             };
             println!("  {}  ({})", item.path_in_repo, reason);
@@ -313,7 +329,10 @@ pub fn handle_restore(config: &Config, repo_root: &Path, yes: bool) -> Result<()
     }
 
     // 构建加密计划（restore 流程：decrypt → copy → re-encrypt）
-    let active_paths: Vec<&str> = pending.iter().map(|(item, _)| item.path_in_repo.as_str()).collect();
+    let active_paths: Vec<&str> = pending
+        .iter()
+        .map(|(item, _)| item.path_in_repo.as_str())
+        .collect();
     #[cfg(feature = "encrypt")]
     let crypt_plan = CryptPlan::build(repo_root, &active_paths)?;
 
@@ -444,7 +463,10 @@ mod crypt_plan {
             }
 
             log::info!("{} item(s) will be encrypted/decrypted.", paths.len());
-            Ok(Some(Self { repo: gse_repo, paths }))
+            Ok(Some(Self {
+                repo: gse_repo,
+                paths,
+            }))
         }
 
         /// 加密仓库中的文件（原地，幂等）。
@@ -793,6 +815,42 @@ mod tests {
         assert_eq!(
             fs::read_to_string(&new_dest_file)?,
             "content for new parent"
+        );
+
+        // 场景 4: 目标目录中有源已不存在的文件，应被删除
+        let source_cleanup_dir = from_path.join("cleanup_src");
+        let dest_cleanup_dir = to_path.join("cleanup_dst");
+        fs::create_dir(&source_cleanup_dir)?;
+        File::create(source_cleanup_dir.join("keep.txt"))?.write_all(b"keep")?;
+
+        // 先复制一次（建立 dest）
+        copy_item(&source_cleanup_dir, &dest_cleanup_dir)?;
+        assert!(dest_cleanup_dir.join("keep.txt").exists());
+
+        // 在 dest 中额外创建一个文件（模拟源中已删除的文件）
+        File::create(dest_cleanup_dir.join("orphan.txt"))?.write_all(b"orphan")?;
+        assert!(dest_cleanup_dir.join("orphan.txt").exists());
+
+        // 再次同步（此时 orphan.txt 不存在于源中）
+        copy_item(&source_cleanup_dir, &dest_cleanup_dir)?;
+
+        // keep.txt 应保留，orphan.txt 应被删除
+        assert!(dest_cleanup_dir.join("keep.txt").exists());
+        assert!(
+            !dest_cleanup_dir.join("orphan.txt").exists(),
+            "orphan.txt should have been deleted during sync"
+        );
+
+        // 场景 5: 目标目录中有源已不存在的子目录，应被递归删除
+        fs::create_dir(dest_cleanup_dir.join("orphan_dir"))?;
+        File::create(dest_cleanup_dir.join("orphan_dir").join("nested.txt"))?
+            .write_all(b"nested")?;
+        assert!(dest_cleanup_dir.join("orphan_dir").exists());
+
+        copy_item(&source_cleanup_dir, &dest_cleanup_dir)?;
+        assert!(
+            !dest_cleanup_dir.join("orphan_dir").exists(),
+            "orphan_dir should have been deleted during sync"
         );
 
         Ok(())
