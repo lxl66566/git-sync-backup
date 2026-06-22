@@ -1,15 +1,15 @@
 [package]
-authors     = ["lxl66566 <lxl66566@gmail.com>"]
-description = "Synchronize and backup files/folders using Git, cross-device & configurable."
-edition     = "2024"
-homepage    = "https://github.com/lxl66566/git-sync-backup.git"
-keywords    = ["git", "sync", "backup"]
-license     = "MIT"
-name        = "git-sync-backup"
-readme      = "README.md"
-repository  = "https://github.com/lxl66566/git-sync-backup.git"
+authors      = ["lxl66566 <lxl66566@gmail.com>"]
+description  = "Synchronize and backup files/folders using Git, cross-device & configurable."
+edition      = "2024"
+homepage     = "https://github.com/lxl66566/git-sync-backup.git"
+keywords     = ["git", "sync", "backup"]
+license      = "MIT"
+name         = "git-sync-backup"
+readme       = "README.md"
+repository   = "https://github.com/lxl66566/git-sync-backup.git"
 rust-version = "1.85"
-version     = "0.3.0"
+version      = "0.4.0"
 
 [features]
 default = ["encrypt"]
@@ -18,20 +18,20 @@ default = ["encrypt"]
 encrypt = ["dep:git-simple-encrypt"]
 
 [dependencies]
-chrono              = "0.4.44"
-clap                = { version = "4.6", features = ["derive"] }
-config-file2        = "0.5.0"
-fuck-backslash      = "0.1.0"
-git-simple-encrypt  = { path = "../git-simple-encrypt", default-features = false, optional = true }
-git2                = "0.21"
-home                = "0.5"
-log                 = "0.4"
-machine-uid         = "0.6"
-pretty_env_logger   = "0.5"
-rayon               = "1.11"
-same-file           = "1.0.6"
-serde               = { version = "1.0", features = ["derive"] }
-thiserror           = "2.0"
+chrono             = "0.4"
+clap               = { version = "4.6", features = ["derive"] }
+config-file2       = "0.5"
+fuck-backslash     = "0.1"
+git-simple-encrypt = { version = "3.0.1", default-features = false, optional = true }
+git2               = "0.21"
+home               = "0.5"
+log                = "0.4"
+machine-uid        = "0.6"
+pretty_env_logger  = "0.5"
+rayon              = "1.11"
+same-file          = "1"
+serde              = { version = "1.0", features = ["derive"] }
+thiserror          = "2.0"
 
 [dev-dependencies]
 tempfile = "3"
@@ -40,13 +40,6 @@ toml     = "1"
 [[bin]]
 name = "gsb"
 path = "src/main.rs"
-
-[lints.rust]
-unsafe_code = "deny"
-
-[lints.clippy]
-all     = "warn"
-pedantic = "warn"
 
 [profile.release]
 lto       = true
