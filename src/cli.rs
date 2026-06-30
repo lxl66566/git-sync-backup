@@ -10,30 +10,31 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Collect all specified items into the git repository
+    /// Collect all specified items into the git repository.
     #[command(alias = "c")]
     Collect {
-        /// Whether to automatically commit the changes
+        /// Whether to automatically commit the changes.
         #[arg(short, long)]
         autocommit: bool,
+
+        /// 交互模式：对每个 item 询问 y/n/a/q。
+        #[arg(short, long)]
+        interactive: bool,
     },
 
-    /// Restore all specified items from the git repository to local paths
+    /// Restore all specified items from the git repository to local paths.
     #[command(alias = "r")]
     Restore {
-        /// Skip the confirmation prompt (dry-run summary).
-        ///
-        /// 默认情况下 `gsb r` 会先打印将要 restore 的文件列表并等待用户确认。
-        /// 传入此选项可直接执行，适用于脚本或 `gsb sync` 后台模式。
-        #[arg(short = 'y', long = "yes")]
-        yes: bool,
+        /// ask y/n/a/q for each collect/restore item。
+        #[arg(short, long)]
+        interactive: bool,
     },
 
-    /// Run in background, continuously fetch and restore updates
+    /// Run in background, continuously fetch and restore updates.
     #[command(alias = "s")]
     Sync,
 
-    /// Get the device name of current device
+    /// Print the device id of the current device.
     #[command(alias = "d")]
     Device,
 }

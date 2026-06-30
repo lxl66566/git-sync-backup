@@ -6,7 +6,7 @@ use std::{
 use home::home_dir;
 use log::LevelFilter;
 
-use crate::error::{GsbError, Result};
+use crate::error::{Context, Result};
 
 #[inline]
 pub fn log_init() {
@@ -25,14 +25,14 @@ pub fn log_init_with_default_level(level: LevelFilter) {
         .try_init();
 }
 
-/// 获取当前设备的主机名
+/// 获取当前设备的 device id（machine-uid）。
 pub fn get_current_device_name() -> Result<String> {
-    machine_uid::get().map_err(|_| GsbError::DeviceNameError)
+    machine_uid::get().map_err(|e| anyhow::anyhow!("无法获取当前设备 ID (machine-uid): {e}"))
 }
 
-/// 从当前目录开始向上查找 `.gsb.config.toml` 文件所在的目录，作为仓库根目录
+/// 从当前目录开始向上查找 `.gsb.config.toml` 所在目录，作为仓库根目录。
 pub fn find_repo_root() -> Result<PathBuf> {
-    let current_dir = env::current_dir()?;
+    let current_dir = env::current_dir().context("无法获取当前工作目录")?;
     let mut current_path: &Path = current_dir.as_ref();
 
     loop {
@@ -42,11 +42,16 @@ pub fn find_repo_root() -> Result<PathBuf> {
 
         match current_path.parent() {
             Some(parent) => current_path = parent,
-            None => return Err(GsbError::RepoRootNotFound),
+            None => {
+                return Err(anyhow::anyhow!(
+                    "未找到 .gsb.config.toml：当前目录及所有父目录中都没有 gsb 配置文件"
+                ));
+            }
         }
     }
 }
 
+/// 展开 `~` 为用户主目录。变量 `{...}` 由 [`crate::vars::Vars`] 处理。
 pub fn expand_tilde(path: PathBuf) -> PathBuf {
     if let Ok(stripped) = path.strip_prefix("~")
         && let Some(home) = home_dir()
@@ -68,7 +73,6 @@ mod tests {
             assert_eq!(result, home.join("Documents"));
         }
 
-        // 不以 ~ 开头 -> 原样返回
         let input = PathBuf::from("/absolute/path");
         let result = expand_tilde(input);
         assert_eq!(result, PathBuf::from("/absolute/path"));

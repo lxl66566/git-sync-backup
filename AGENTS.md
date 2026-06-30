@@ -24,34 +24,63 @@
 
 配置文件为仓库下根目录的 `.gsb.config.toml` 文件，记录了所有 gsb 的设置与文件对应关系。
 
-gsb 设计为跨设备跨系统与架构使用，同一个文件在不同设备上的存储路径可能不同。每一个文件可以有一个 default_source 路径在所有设备上通用，也可以使用 device name 指定具体设备的路径。
+gsb 设计为跨设备跨系统与架构使用，同一个文件在不同设备上的存储路径可能不同。
+设计上：
 
-每一个 path 可以是文件或文件夹。如果是文件，还可以指定 is_hardlink 为 true，则默认仓库中文件与 path 位置是 hardlink，collect 和 restore 时无需处理。
+- 每个 `[[item]]` 通过 `ops` + 设备表 `[item.devices.<id>]` 二维表达「哪些设备
+  执行哪些操作」，避免冗长的 `ignore_*` / `restore_*` 等字段。
+- `source` 字段支持 `{NAME}` 形式的变量展开（基于 `easy_strfmt`，内置 `{HOME}`、`{DEVICE}`、
+  `{DEVICE_ALIAS}`、`{REPO}`，外加 `[vars]` 自定义变量）。
+- 设备标识（machine-uid）可在 `[aliases]` 中起别名，所有 `source` / `ops` 等
+  位置都允许混用别名与原始 hash。
+
+每一个 path 可以是文件或文件夹。如果是文件，还可以指定 `is_hardlink = true`，
+表示仓库中文件与 `path` 位置是硬链接，collect / restore 时不会处理。
 
 ```toml
 sync_interval = 3600    # gsb sync 同步间隔，单位为秒
-version       = "0.2.1" # gsb 版本
+version       = "0.5.0" # gsb 版本（用于兼容性检查）
 
-[git] # （Optional）Git 相关配置
-branch = "main"   # gsb sync 时使用的分支名（Optional, default = "main"）
-remote = "origin" # gsb sync 时使用的远程仓库名（Optional, default = "origin"）
+[git]                          # （可选）Git 相关配置
+branch = "main"                # （可选, 缺省 "main"）
+remote = "origin"              # （可选, 缺省 "origin"）
 
-# 定义设备 id 的 alias，允许混用
-[aliases]
+[aliases]                      # （可选）设备 ID 的 alias，允许混用
 main = "ff19a810-c0ea-44b0-b297-f2209a48bfc3"
 work = "25f758c0-d868-45ed-95d8-4db9494c8a38"
 
+[vars]                         # （可选）自定义变量
+my_root = "/some/root"
+
 # 定义一个需要同步或备份的项。可以有多个 `[[item]]`。
 [[item]]
-default_source = "C:/Program Files/gsb" # （Optional）默认路径
-is_hardlink    = true                   # （Optional）如果设置为 `true`，则表示仓库中的文件与 `path` 位置是硬链接。在 `collect` 和 `restore` 时不会处理这些文件。不可对文件夹使用。
-path_in_repo   = "test"                 # 项目在仓库中的相对路径
+path_in_repo = "test"                 # 项目在仓库中的相对路径
+source       = "{HOME}/.config/gsb"   # （可选）所有设备的默认路径
+is_hardlink  = true                   # （可选）仓库内文件与 source 是硬链接
+ops          = ["collect", "restore"] # （可选, 缺省即此值）该 item 默认操作
 
-[[item]]
-path_in_repo = "test2" # 项目在仓库中的相对路径
-ignore_collect                               = ["d37ef0ee-3c3f-419a-8c32-66526565b4ae"]    # （Optional）当前 item 不需要执行 `collect` 操作的设备
-ignore_restore                               = ["work"]    # （Optional）当前 item 不需要执行 `restore` 操作的设备
-# （Optional）为特定设备指定不同的本地路径。
-sources.e48ff1f2-4d5e-4a9f-9c3d-66526565b4ae = "E:/Program Files/gsb"
-sources.main = "D:/Program Files/gsb"
+# （可选）设备级覆盖。key 可以是别名或原始 hash。
+[item.devices.main]
+source = "D:/Program Files/gsb"
+ops    = ["collect"]   # 仅 collect，重要数据保护
+
+[item.devices."uuid-xxx"]
+ops = []               # 完全跳过
 ```
+
+#### ops 语义
+
+| `ops` 值                         | 含义                       |
+| -------------------------------- | -------------------------- |
+| `["collect", "restore"]`（缺省） | 双向：当前设备既收集也恢复 |
+| `["collect"]`                    | 仅备份（重要数据保护）     |
+| `["restore"]`                    | 仅恢复（首次部署）         |
+| `[]`                             | 完全跳过                   |
+
+`ops` 在 TOML 中可以写成单字符串（`ops = "collect"`）或数组
+（`ops = ["collect"]`）。
+
+### 交互模式
+
+`gsb collect -i` 与 `gsb restore -i` 启用 interactive，对每个 item 询问
+`y/n/a/q`（是 / 否 / 全部是 / 退出）。`gsb sync` 后台模式始终非交互。
