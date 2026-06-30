@@ -18,9 +18,11 @@ default = ["encrypt"]
 encrypt = ["dep:git-simple-encrypt"]
 
 [dependencies]
+anyhow             = "1.0"
 chrono             = "0.4"
 clap               = { version = "4.6", features = ["derive"] }
 config-file2       = "0.6"
+easy_strfmt        = "0.1"
 fuck-backslash     = "0.1"
 git-simple-encrypt = { version = "3.0.2", default-features = false, optional = true }
 git2               = "0.21"
@@ -31,7 +33,6 @@ pretty_env_logger  = "0.5"
 rayon              = "1.11"
 same-file          = "1"
 serde              = { version = "1.0", features = ["derive"] }
-thiserror          = "2.0"
 
 [dev-dependencies]
 tempfile = "3"

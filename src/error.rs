@@ -1,31 +1,15 @@
-use thiserror::Error;
+//! 错误处理
+//!
+//! 本项目作为 CLI 工具，统一使用 [`anyhow::Error`] 作为错误类型。其优势：
+//! - 任意位置可用 `.context(...)` / `.with_context(...)` 附加上下文，错误信息
+//!   对最终用户更友好。
+//! - 调用方无需为不同的错误变体定义 enum，但仍可在底层用 `GsbError` 这类
+//!   类型化错误表示领域内关键错误（通过 `#[source]` 自动转换）。
+//!
+//! 这里 [`Result`]`<T>` 等价于 `Result<T, anyhow::Error>`，所有公共 API
+//! 都使用它，避免在每个模块重复写 `anyhow::Result`。
 
-#[derive(Debug, Error)]
-pub enum GsbError {
-    #[error("IO Error: {0}")]
-    Io(#[from] std::io::Error),
+pub use anyhow::{Context, Result as AnyhowResult};
 
-    #[error("Config file format error: {0}")]
-    ConfigFormat(#[from] config_file2::error::Error),
-
-    #[error("Config file '.gsb.config.toml' not found in current or parent directories.")]
-    ConfigNotFound,
-
-    #[error("Git Error: {0}")]
-    Git(#[from] git2::Error),
-
-    #[error("Could not determine repository root.")]
-    RepoRootNotFound,
-
-    #[error("Could not determine current device name.")]
-    DeviceNameError,
-
-    #[error("Source path not found for item '{0}' on device '{1}'.")]
-    SourcePathNotFound(String, String),
-
-    #[cfg(feature = "encrypt")]
-    #[error("Encryption error: {0}")]
-    Encrypt(#[from] git_simple_encrypt::Error),
-}
-
-pub type Result<T> = std::result::Result<T, GsbError>;
+/// 项目统一的 `Result` 别名，错误类型固定为 [`anyhow::Error`]。
+pub type Result<T> = AnyhowResult<T>;

@@ -81,6 +81,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.103"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
+
+[[package]]
 name = "argon2"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -452,6 +458,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "easy_strfmt"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4c7f26acfb52e4e74af29ea13f0ec2362c9b22dde0c147a940070be961b6f21"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "either"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -617,9 +632,11 @@ dependencies = [
 name = "git-sync-backup"
 version = "0.4.0"
 dependencies = [
+ "anyhow",
  "chrono",
  "clap",
  "config-file2 0.6.0",
+ "easy_strfmt",
  "fuck-backslash",
  "git-simple-encrypt",
  "git2",
@@ -631,7 +648,6 @@ dependencies = [
  "same-file",
  "serde",
  "tempfile",
- "thiserror",
  "toml",
 ]
 
